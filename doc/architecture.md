@@ -1,8 +1,9 @@
 # 🐾 NetTamer — 项目架构设计文档
 
-> **版本**: v1.0.0-draft  
-> **日期**: 2024-08-14  
-> **状态**: 设计阶段
+> **版本**: v2.0.0-draft  
+> **日期**: 2026-08-14  
+> **状态**: 设计阶段  
+> **重大变更**: v2 将原 v1 的 **Wails v3 (Go)** 方案替换为 **Tauri 2.0 (Rust)**；ETW 监控由 Go 库改为 **windows-rs / windows-sys**；限速由 Windows QoS Policy (PowerShell) 改为 **WinDivert (Rust crate)** 数据包拦截 / 修改 / 重发 / 过滤。
 
 ---
 
@@ -12,13 +13,13 @@
 2. [核心需求](#2-核心需求)
 3. [技术选型](#3-技术选型)
 4. [系统架构总览](#4-系统架构总览)
-5. [后端架构设计 (Go)](#5-后端架构设计-go)
+5. [后端架构设计 (Rust)](#5-后端架构设计-rust)
 6. [前端架构设计 (Vue 3)](#6-前端架构设计-vue-3)
 7. [ETW 网络事件跟踪模块](#7-etw-网络事件跟踪模块)
-8. [QoS 限速模块](#8-qos-限速模块)
+8. [WinDivert 数据包拦截与限速模块](#8-windivert-数据包拦截与限速模块)
 9. [预警系统设计](#9-预警系统设计)
 10. [数据模型设计](#10-数据模型设计)
-11. [Wails 绑定层设计](#11-wails-绑定层设计)
+11. [Tauri 命令与事件层设计](#11-tauri-命令与事件层设计)
 12. [项目目录结构](#12-项目目录结构)
 13. [安全与权限](#13-安全与权限)
 14. [性能设计](#14-性能设计)
@@ -36,8 +37,8 @@
 | 维度 | 描述 |
 |------|------|
 | **目标用户** | Windows 桌面用户、开发者、网络管理人员 |
-| **核心价值** | 无需安装第三方驱动，即可实现进程级网络监控与限速 |
-| **竞品对比** | 区别于 NetLimiter 等需要安装内核驱动的方案，NetTamer 完全基于 Windows 原生 API |
+| **核心价值** | 基于 Windows 原生 API + 用户态数据包驱动，实现进程级网络监控与限速 |
+| **竞品对比** | 区别于 NetLimiter 等方案，NetTamer 在用户态即可完成**双向**（上传/下载）限速，无需安装独立的第三方内核驱动 |
 
 ### 1.2 核心特性一览
 
@@ -45,9 +46,9 @@
 ┌─────────────────────────────────────────────────────────────┐
 │                      NetTamer 核心特性                       │
 ├─────────────┬──────────────┬───────────────┬────────────────┤
-│  📊 实时监控  │  ⚡ 上行预警   │  🚦 QoS 限速   │  🎨 精美界面   │
-│  进程级速率   │  阈值可配置   │  系统原生策略   │  shadcn-vue   │
-│  上传/下载    │  自动提醒     │  无需驱动      │  暗色主题     │
+│  📊 实时监控  │  ⚡ 上行预警   │  🚦 双向限速   │  🎨 精美界面   │
+│  进程级速率   │  阈值可配置   │  WinDivert    │  shadcn-vue   │
+│  上传/下载    │  自动提醒     │  拦截/重发    │  暗色主题     │
 └─────────────┴──────────────┴───────────────┴────────────────┘
 ```
 
@@ -62,6 +63,7 @@
 - 支持按速率、进程名、PID 等维度排序
 - 速率刷新频率可配置（默认 1 秒）
 - 显示进程图标、路径等辅助信息
+- **数据来源**：ETW（`Microsoft-Windows-Kernel-Network`）按 PID 聚合统计
 
 #### F2: 上传速率预警
 - 用户可对指定进程或全局设置 **上传速率阈值**
@@ -69,10 +71,10 @@
 - 支持预警规则的增删改查与持久化
 - 支持预警历史记录查询
 
-#### F3: 进程级限速
-- 基于 **Windows 原生 QoS 策略** 对指定进程设置上传带宽上限
-- 支持限速策略的创建、修改、删除
-- 限速操作即时生效，无需重启进程
+#### F3: 进程级限速（双向）
+- 基于 **WinDivert** 对指定进程设置上传 / 下载带宽上限
+- 支持拦截、修改、重发数据包与过滤规则处理
+- 支持限速策略的创建、修改、删除，即时生效
 - 显示当前已生效的限速策略列表
 
 #### F4: 系统托盘与后台运行
@@ -87,7 +89,7 @@
 | **性能** | CPU 占用 < 2%（空闲态），内存占用 < 50MB |
 | **启动速度** | 冷启动 < 3 秒 |
 | **兼容性** | Windows 10 1809+ / Windows 11 |
-| **权限** | 需要管理员权限（ETW + QoS） |
+| **权限** | 需要管理员权限（ETW + WinDivert） |
 | **安装** | 单文件便携版 + 安装包两种分发方式 |
 
 ---
@@ -100,75 +102,87 @@
 ┌──────────────────────────────────────────────────────────────────┐
 │                           技术栈                                  │
 ├──────────────┬───────────────────────────────────────────────────┤
-│ 桌面框架      │ Wails v3 (Beta)                                  │
-│ 后端语言      │ Go 1.22+                                        │
+│ 桌面框架      │ Tauri 2.0                                        │
+│ 后端语言      │ Rust (Edition 2021)                              │
 │ 前端框架      │ Vue 3 (Composition API) + TypeScript             │
 │ UI 组件库     │ shadcn-vue + Tailwind CSS                        │
 │ 状态管理      │ Pinia                                            │
 │ 图表库        │ Apache ECharts / uPlot                           │
-│ 网络监控      │ Windows ETW (Microsoft-Windows-Kernel-Network)   │
-│ 流量整形      │ Windows QoS Policy (New-NetQosPolicy)            │
-│ 数据持久化    │ SQLite (via modernc.org/sqlite, 纯 Go)            │
-│ 构建工具      │ Vite 5                                           │
-│ 包管理        │ pnpm                                             │
+│ 网络监控      │ ETW (windows-rs / windows-sys)                   │
+│ 数据包控制    │ WinDivert (Rust crate) — 拦截/修改/重发/过滤      │
+│ 数据持久化    │ SQLite (via rusqlite / sqlx)                     │
+│ 异步运行时    │ Tokio                                            │
+│ 构建工具      │ Vite 5 (前端) + Cargo (后端)                     │
+│ 包管理        │ pnpm (前端) / Cargo (后端)                       │
 └──────────────┴───────────────────────────────────────────────────┘
 ```
 
 ### 3.2 关键技术选型说明
 
-#### 3.2.1 Wails v3 — 桌面应用框架
+#### 3.2.1 Tauri 2.0 — 桌面应用框架
 
 **选型理由：**
-- Go 原生绑定，无需 Node.js 运行时
-- 使用系统 WebView2（Windows 默认内置），安装包体积极小（~8MB）
-- **Service 化架构**：后端逻辑封装为模块化的 Service，支持生命周期钩子（`ServiceStartup` / `ServiceShutdown`）
-- **静态源码分析绑定**：通过 `wails3 generate bindings` 基于源码分析生成 TypeScript 绑定，保留 JSDoc 注释与参数名
-- **原生多窗口支持**：一等公民级别的多窗口创建、管理与销毁
-- **原生系统托盘支持**：内置统一的 `app.SystemTray` API，支持托盘图标、菜单及点击事件
-- **Taskfile 构建系统**：透明可检查的 `Taskfile.yml`，替代 v2 的不透明构建流程
+- 基于 **Rust** 后端 + 系统 **WebView2**（Windows 默认内置），安装包体积极小（~5-10MB），无需 Node.js 运行时
+- 安全模型成熟：默认禁止任意系统调用，所有前端↔后端交互经由显式声明的 **Tauri Command**（带类型与权限校验）
+- 跨平台原生 API 抽象，插件生态完善（托盘、通知、自动启动、Updater 等）
+- 前端技术栈解耦：Vue 3 + shadcn-vue + Tailwind 完全复用，UI 实现零改动
+- 原生多窗口、系统托盘、通知中心、自动启动等一等支持
 
-**Wails v3 vs v2 关键变化：**
+**Tauri 2.0 vs Wails v3（原方案）关键变化：**
 
-| 特性 | Wails v2 | Wails v3 |
+| 特性 | Wails v3 (原方案) | Tauri 2.0 (新方案) |
 |------|---------|----------|
-| API 风格 | 声明式 (`wails.Run`) | 过程式（显式 app/window 生命周期） |
-| 窗口管理 | 单窗口 | 多窗口（动态管理） |
-| 绑定机制 | 反射 (Reflection) | 静态源码分析（更丰富的类型绑定） |
-| 构建系统 | 内置不透明 | Taskfile（可检查/可扩展） |
-| 系统托盘 | 社区方案 / 受限 | 原生一等支持 |
-| 服务注册 | `Bind: []interface{}` | `Services: []application.Service` |
+| 后端语言 | Go | Rust |
+| 绑定机制 | 静态源码分析生成 TS 绑定 | `#[tauri::command]` 宏 + 类型安全的 `invoke` |
+| 安全模型 | 反射/服务暴露 | 显式命令 + 权限 Capability 配置 |
+| 系统托盘 | 原生一等支持 | 原生插件 (`tray-icon`) |
+| 通知 | 自定义 | 原生插件 (`notification`) |
+| 驱动集成 | 原生调用 | 通过 Rust crate 直接集成 WinDivert |
 
-#### 3.2.2 ETW — 网络事件跟踪
+> **决策**：WinDivert / windows-sys 均为 Rust 原生生态，Tauri 2.0 的 Rust 后端可零摩擦集成，因此后端语言随之由 Go 切换为 Rust。
+
+#### 3.2.2 ETW — 网络事件跟踪（windows-rs / windows-sys）
 
 **选型理由：**
 - Windows 原生内核级事件跟踪设施，零额外驱动
 - `Microsoft-Windows-Kernel-Network` Provider 直接提供 TCP Send/Recv 事件，携带 PID 和字节数
-- 高性能、低开销，内核层面数据采集
+- 通过 **windows-rs**（高层封装）与 **windows-sys**（零依赖纯绑定、编译期生成）调用 ETW Trace API（`StartTrace` / `OpenTrace` / `ProcessTrace` / `EnableTraceEx2`）
+- 高性能、低开销，内核层面数据采集，仅用于 **统计/监控**，不直接干预流量
 
-**Go 库选型对比：**
+**Rust 集成方式：**
 
-| 库 | CGO | 特点 | 选择 |
-|----|-----|------|------|
-| `bi-zone/etw` | ✅ 需要 | 成熟稳定，社区活跃 | 备选 |
-| `tekert/goetw` | ❌ 不需要 | 纯 Go，无外部依赖，高性能 | **首选** ✅ |
-| `secDre4mer/etw` | ✅ 需要 | bi-zone fork，增强功能 | 备选 |
+| 库 | 特点 | 选择 |
+|----|------|------|
+| `windows-sys` | 纯 FFI 绑定，零运行时依赖，编译期生成 | **首选** ✅ |
+| `windows` | 高层安全封装（带类型包装），体积略大 | 备选（便于快速开发时使用） |
 
-> **决策**: 优先选用 `tekert/goetw`，避免 CGO 依赖以简化交叉编译与 CI 流程。若遇到功能不足，回退至 `bi-zone/etw`。
+> **决策**：ETW 消费者使用 `windows-sys`（特性 `Windows::Win32::System::Diagnostics::Etw`）。如开发期需要更友好的类型封装，可临时切到 `windows` crate，最终发布态回归 `windows-sys` 以减小体积。
 
-#### 3.2.3 QoS Policy — 流量整形
+#### 3.2.3 WinDivert — 数据包拦截 / 修改 / 重发 / 过滤
 
 **选型理由：**
-- Windows 内置的 `New-NetQosPolicy` cmdlet 支持按可执行文件名限制出站带宽
-- 无需安装任何驱动，通过 `os/exec` 调用 PowerShell 即可实现
-- 系统级策略，对进程透明，无侵入性
+- WinDivert 是基于 **Windows Filtering Platform (WFP)** 的用户态数据包捕获 / 注入库，可在用户态拦截、修改、重发、丢弃网络数据包
+- 通过 **Rust crate**（如 `windivert` / `windivert-sys`，FFI 封装 `WinDivert.dll` + `WinDivert.sys` 驱动）集成，无需编写内核驱动
+- 支持 **过滤表达式语言**（filter），可精确匹配进程、协议、端口、方向
+- 可实现 **双向限速**（上传 + 下载），弥补原 QoS Policy 仅支持出站的缺陷
+- 原生支持「拦截 → 修改 → 重发」链路，为未来数据包改写 / 规则处理预留扩展点
+
+**职责边界：**
+
+| 能力 | 实现方式 | 用途 |
+|------|---------|------|
+| 拦截 | `WinDivertRecv` 捕获 IP 数据包 | 限速 / 过滤前置 |
+| 修改 | 解析并改写包头（端口、地址、载荷标记） | 规则处理、未来扩展 |
+| 重发 | `WinDivertSend` 将数据包重新注入网络栈 | 限速缓冲后按速率重投 |
+| 过滤 | WinDivert 过滤表达式 | 仅匹配目标进程流量 |
 
 **限制与应对：**
 
 | 限制 | 应对策略 |
 |------|---------|
-| QoS Policy 仅支持**出站（上传）**限速 | MVP 阶段仅支持上传限速；后续可通过 WFP 扩展下载限速 |
-| 需要管理员权限 | 应用启动时请求 UAC 提升 |
-| 按可执行文件名匹配（非 PID） | 策略粒度为进程名级别，同名进程共享策略 |
+| 需要管理员权限加载驱动 | 应用启动时请求 UAC 提升 |
+| 数据包→进程映射需端口→PID 关联 | 结合 ETW 连接事件 + `GetExtendedTcpTable` 维护端口→PID 表 |
+| 限速精度依赖丢包/重发策略 | 采用令牌桶 + 受控重发，避免误伤连接 |
 
 #### 3.2.4 shadcn-vue — UI 组件库
 
@@ -191,13 +205,11 @@
 │  │ 进程列表  │ │ 速率图表  │ │ 预警配置  │ │ 限速管理  │ │ 系统设置  │     │
 │  └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘     │
 │       └────────────┴────────────┴────────────┴────────────┘            │
-│                              │ Wails Bindings (TypeScript)             │
+│                              │ Tauri Commands + Events                 │
 ├──────────────────────────────┼──────────────────────────────────────────┤
-│                              │ Wails Runtime Bridge                    │
-├──────────────────────────────┼──────────────────────────────────────────┤
-│                       应用服务层 (Go)                                   │
+│                       应用核心层 (Rust / Tokio)                          │
 │  ┌──────────────────────────────────────────────────────────────┐      │
-│  │                     Wails App Service                        │      │
+│  │                     Tauri App (State + Commands)             │      │
 │  │  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌──────────┐  │      │
 │  │  │ MonitorSvc │ │ AlertSvc   │ │ ThrottleSvc│ │ ConfigSvc│  │      │
 │  │  └─────┬──────┘ └─────┬──────┘ └─────┬──────┘ └────┬─────┘  │      │
@@ -205,21 +217,23 @@
 │           │              │              │             │                │
 ├───────────┼──────────────┼──────────────┼─────────────┼────────────────┤
 │           ▼              ▼              ▼             ▼                │
-│                       核心引擎层 (Go)                                   │
+│                       核心引擎层 (Rust)                                   │
 │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐  │
-│  │  ETW Engine  │ │ Alert Engine │ │ QoS Engine   │ │ Store Engine │  │
-│  │ (内核事件消费) │ │ (规则引擎)   │ │ (策略管理)    │ │ (SQLite)    │  │
+│  │  ETW Engine  │ │ Alert Engine │ │ WinDivert    │ │ Store Engine │  │
+│  │ (windows-sys │ │ (规则引擎)   │ │  Engine      │ │ (SQLite)     │  │
+│  │  事件消费)    │ │             │ │ (拦截/重发/   │ │              │  │
+│  │              │ │             │ │  过滤/限速)   │ │              │  │
 │  └──────┬───────┘ └──────────────┘ └──────┬───────┘ └──────────────┘  │
 │         │                                  │                           │
 ├─────────┼──────────────────────────────────┼───────────────────────────┤
 │         ▼                                  ▼                           │
 │                     操作系统层 (Windows)                                 │
 │  ┌────────────────────────────┐  ┌────────────────────────────┐       │
-│  │ ETW Kernel Session         │  │ PowerShell QoS Cmdlets     │       │
-│  │ Microsoft-Windows-          │  │ New-NetQosPolicy           │       │
-│  │   Kernel-Network           │  │ Set-NetQosPolicy           │       │
-│  │ GUID: {7dd42a49-5329-      │  │ Remove-NetQosPolicy        │       │
-│  │   4832-8dfd-43d979153a88}  │  │ Get-NetQosPolicy           │       │
+│  │ ETW Kernel Session         │  │ WinDivert (用户态 + WFP)    │       │
+│  │ Microsoft-Windows-          │  │ WinDivert.dll              │       │
+│  │   Kernel-Network           │  │   ↓ WinDivert.sys          │       │
+│  │ GUID: {7dd42a49-5329-      │  │ WFP (TCPIP / FWPM)         │       │
+│  │   4832-8dfd-43d979153a88}  │  │ 数据包 拦截/注入/过滤        │       │
 │  └────────────────────────────┘  └────────────────────────────┘       │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -231,11 +245,12 @@
                     │          Windows Kernel            │
                     │   TCP Send / TCP Recv Events       │
                     └──────────────┬────────────────────┘
-                                   │ ETW Real-time Session
+                                   │ ETW Real-time Session (windows-sys)
                                    ▼
                     ┌───────────────────────────────────┐
-                    │       ETW Consumer (Go)            │
+                    │       ETW Consumer (Rust)          │
                     │  解析事件 → 提取 PID + 字节数        │
+                    │  维护 端口→PID 映射表               │
                     └──────────────┬────────────────────┘
                                    │
                     ┌──────────────▼────────────────────┐
@@ -250,117 +265,118 @@
               └────────┬───────┘   └───────┬───────────┘
                        │                   │
               ┌────────▼───────┐   ┌───────▼───────────┐
-              │ Windows Toast  │   │ Wails EventEmit   │
+              │ Windows Toast  │   │ Tauri Event       │
               │ 系统通知弹窗    │   │ 推送到前端渲染      │
               └────────────────┘   └───────────────────┘
+
+                    ┌───────────────────────────────────┐
+                    │       WinDivert Engine (Rust)      │
+                    │  WinDivertRecv → 分类(端口→PID)    │
+                    │  ├─ 未限速: 直接 WinDivertSend 重发 │
+                    │  └─ 已限速: 令牌桶裁决 → 丢弃/缓冲  │
+                    │                    → 按速率 WinDivertSend │
+                    └───────────────────────────────────┘
 ```
 
 ---
 
-## 5. 后端架构设计 (Go)
+## 5. 后端架构设计 (Rust)
 
 ### 5.1 模块划分
 
-后端采用 **分层 + 模块化** 架构，各模块职责明确、低耦合：
+后端采用 **分层 + 模块化** 架构（Rust crate 内部 module），各模块职责明确、低耦合：
 
 ```
-internal/
-├── etw/            # ETW 事件跟踪模块
+src-tauri/src/
+├── etw/            # ETW 事件跟踪模块 (windows-sys)
 ├── monitor/        # 速率监控与聚合模块
+├── windivert/      # 数据包拦截 / 修改 / 重发 / 过滤模块
+├── throttle/       # 限速策略编排（基于 WinDivert）
 ├── alert/          # 预警引擎模块
-├── throttle/       # QoS 限速模块
-├── process/        # 进程信息查询模块
-├── store/          # 数据持久化模块
+├── process/        # 进程信息查询 + 端口→PID 映射
+├── store/          # 数据持久化模块 (SQLite)
 ├── config/         # 配置管理模块
 ├── notify/         # 系统通知模块
-└── tray/           # 系统托盘模块
+├── tray/           # 系统托盘模块
+└── commands/       # Tauri Command 暴露层
 ```
 
 ### 5.2 核心模块详细设计
 
-#### 5.2.1 ETW 模块 (`internal/etw`)
+#### 5.2.1 ETW 模块 (`etw`)
 
-```go
-// etw/session.go — ETW 会话管理
+```rust
+// etw/session.rs — ETW 会话管理 (基于 windows-sys)
 
-package etw
+/// Microsoft-Windows-Kernel-Network 的 Provider GUID
+pub const KERNEL_NETWORK_PROVIDER: windows_sys::core::GUID = windows_sys::core::GUID {
+    data1: 0x7dd42a49,
+    data2: 0x5329,
+    data3: 0x4832,
+    data4: [0x8d, 0xfd, 0x43, 0xd9, 0x79, 0x15, 0x3a, 0x88],
+};
 
-// KernelNetworkProviderGUID 是 Microsoft-Windows-Kernel-Network 的 Provider GUID
-const KernelNetworkProviderGUID = "{7dd42a49-5329-4832-8dfd-43d979153a88}"
-
-// NetworkEvent 表示一次 TCP 网络事件
-type NetworkEvent struct {
-    Timestamp  time.Time
-    PID        uint32
-    Direction  Direction  // Send / Recv
-    Size       uint32     // 字节数
-    LocalIP    net.IP
-    LocalPort  uint16
-    RemoteIP   net.IP
-    RemotePort uint16
+/// 一次 TCP/UDP 网络事件
+#[derive(Debug, Clone)]
+pub struct NetworkEvent {
+    pub timestamp: std::time::SystemTime,
+    pub pid: u32,
+    pub direction: Direction,   // Send / Recv
+    pub size: u32,              // 字节数
+    pub local_addr: std::net::SocketAddr,
+    pub remote_addr: std::net::SocketAddr,
 }
 
-// Direction 网络方向
-type Direction int
-const (
-    DirectionSend Direction = iota  // 上传
-    DirectionRecv                    // 下载
-)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction { Send, Recv }
 
-// Session 管理 ETW 实时事件会话
-type Session struct {
-    sessionName string
-    eventCh     chan NetworkEvent
-    stopCh      chan struct{}
+/// ETW 实时事件会话
+pub struct Session {
+    name: String,
+    event_tx: tokio::sync::mpsc::Sender<NetworkEvent>,
+    // 内部持有 trace handle，Drop 时自动 StopTrace
 }
 
-// NewSession 创建并启动一个 ETW 实时事件跟踪会话
-func NewSession(bufferSize int) (*Session, error) { ... }
-
-// Events 返回事件通道，供消费者读取
-func (s *Session) Events() <-chan NetworkEvent { ... }
-
-// Stop 停止事件跟踪会话并释放资源
-func (s *Session) Stop() error { ... }
+impl Session {
+    /// 创建并启动一个 ETW 实时事件跟踪会话
+    pub fn start(buffer_size: u32) -> Result<(Self, Receiver<NetworkEvent>), EtwError> { todo!() }
+    /// 停止事件跟踪会话并释放资源
+    pub fn stop(self) -> Result<(), EtwError> { todo!() }
+}
 ```
 
-#### 5.2.2 监控聚合模块 (`internal/monitor`)
+#### 5.2.2 监控聚合模块 (`monitor`)
 
-```go
-// monitor/aggregator.go — 按进程聚合网络速率
+```rust
+// monitor/aggregator.rs — 按进程聚合网络速率
 
-package monitor
-
-// ProcessStats 单个进程的网络统计快照
-type ProcessStats struct {
-    PID           uint32  `json:"pid"`
-    Name          string  `json:"name"`
-    Path          string  `json:"path"`
-    UploadRate    float64 `json:"uploadRate"`    // bytes/sec
-    DownloadRate  float64 `json:"downloadRate"`  // bytes/sec
-    TotalUpload   uint64  `json:"totalUpload"`   // 累计上传字节
-    TotalDownload uint64  `json:"totalDownload"` // 累计下载字节
+/// 单个进程的网络统计快照
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ProcessStats {
+    pub pid: u32,
+    pub name: String,
+    pub path: String,
+    pub upload_rate: f64,      // bytes/sec
+    pub download_rate: f64,    // bytes/sec
+    pub total_upload: u64,
+    pub total_download: u64,
 }
 
-// Aggregator 速率聚合器
-type Aggregator struct {
-    mu        sync.RWMutex
-    processes map[uint32]*processAccumulator  // PID → 累加器
-    window    time.Duration                    // 统计窗口
-    ticker    *time.Ticker
+/// 速率聚合器
+pub struct Aggregator {
+    processes: std::sync::RwLock<HashMap<u32, ProcessAccumulator>>,
+    window: std::time::Duration,
 }
 
-// NewAggregator 创建聚合器，window 为速率计算窗口（如 1s）
-func NewAggregator(window time.Duration) *Aggregator { ... }
-
-// Ingest 接收 ETW 原始事件并累加
-func (a *Aggregator) Ingest(event etw.NetworkEvent) { ... }
-
-// Snapshot 返回当前所有进程的速率快照（线程安全）
-func (a *Aggregator) Snapshot() []ProcessStats { ... }
-
-// TopN 返回按指定维度排序的前 N 个进程
-func (a *Aggregator) TopN(n int, sortBy SortField, order SortOrder) []ProcessStats { ... }
+impl Aggregator {
+    pub fn new(window: std::time::Duration) -> Self { todo!() }
+    /// 接收 ETW 原始事件并累加
+    pub fn ingest(&self, ev: NetworkEvent) { todo!() }
+    /// 返回当前所有进程的速率快照（线程安全）
+    pub fn snapshot(&self) -> Vec<ProcessStats> { todo!() }
+    /// 返回按指定维度排序的前 N 个进程
+    pub fn top_n(&self, n: usize, sort_by: SortField, order: SortOrder) -> Vec<ProcessStats> { todo!() }
+}
 ```
 
 **速率计算算法：**
@@ -378,175 +394,147 @@ func (a *Aggregator) TopN(n int, sortBy SortField, order SortOrder) []ProcessSta
   - 响应灵敏度可通过 α 参数调节
 ```
 
-#### 5.2.3 预警引擎模块 (`internal/alert`)
+#### 5.2.3 WinDivert 引擎模块 (`windivert`)
 
-```go
-// alert/engine.go — 预警规则引擎
+```rust
+// windivert/engine.rs — 数据包拦截 / 修改 / 重发 / 过滤
 
-package alert
+use windivert::WinDivert;
 
-// Rule 预警规则
-type Rule struct {
-    ID            string    `json:"id"`
-    Name          string    `json:"name"`
-    ProcessName   string    `json:"processName"`   // 进程名匹配（支持通配符）
-    Threshold     float64   `json:"threshold"`      // 阈值 (bytes/sec)
-    Direction     Direction `json:"direction"`      // Upload / Download / Both
-    CooldownSec   int       `json:"cooldownSec"`    // 冷却时间，防止重复告警
-    Enabled       bool      `json:"enabled"`
-    CreatedAt     time.Time `json:"createdAt"`
+/// 捕获层
+#[derive(Debug, Clone, Copy)]
+pub enum Layer { Network, NetworkForward }
+
+/// WinDivert 引擎
+pub struct WinDivertEngine {
+    handle: WinDivert,
+    throttle: Arc<ThrottleTable>,   // 进程 → 速率上限
+    port_map: Arc<PortPidMap>,      // 端口 → PID（来自 ETW / IPHelper）
+    tx: tokio::sync::mpsc::Sender<Packet>,
 }
 
-// AlertEvent 一次预警事件
-type AlertEvent struct {
-    ID          string    `json:"id"`
-    RuleID      string    `json:"ruleId"`
-    ProcessName string    `json:"processName"`
-    PID         uint32    `json:"pid"`
-    CurrentRate float64   `json:"currentRate"`   // 当前速率
-    Threshold   float64   `json:"threshold"`     // 触发阈值
-    TriggeredAt time.Time `json:"triggeredAt"`
-}
+impl WinDivertEngine {
+    /// 以过滤表达式打开 WinDivert（如 "tcp or udp" 或按进程）
+    pub fn open(filter: &str, layer: Layer) -> Result<Self, WinDivertError> { todo!() }
 
-// Engine 预警引擎
-type Engine struct {
-    rules      map[string]*Rule
-    cooldowns  map[string]time.Time  // ruleID+processName → 上次触发时间
-    alertCh    chan AlertEvent
-    store      store.AlertStore
-}
+    /// 捕获循环：WinDivertRecv → 解析 → 分类 → 限速裁决 → 重发/丢弃
+    pub async fn run(&self) { todo!() }
 
-// NewEngine 创建预警引擎
-func NewEngine(store store.AlertStore) *Engine { ... }
+    /// 修改数据包头（地址/端口/标记）后通过 WinDivertSend 重发
+    pub fn modify_and_send(&self, pkt: &mut Packet) -> Result<(), WinDivertError> { todo!() }
 
-// Evaluate 对一组进程快照执行规则匹配
-func (e *Engine) Evaluate(stats []monitor.ProcessStats) { ... }
+    /// 应用/更新过滤规则
+    pub fn set_filter(&self, filter: &str) -> Result<(), WinDivertError> { todo!() }
 
-// Alerts 返回预警事件通道
-func (e *Engine) Alerts() <-chan AlertEvent { ... }
-```
-
-#### 5.2.4 QoS 限速模块 (`internal/throttle`)
-
-```go
-// throttle/qos.go — 基于 Windows QoS Policy 的限速管理
-
-package throttle
-
-// Policy 限速策略
-type Policy struct {
-    ID           string    `json:"id"`
-    Name         string    `json:"name"`          // QoS 策略名称
-    ProcessName  string    `json:"processName"`   // 可执行文件名 (如 "chrome.exe")
-    RateLimitBps uint64    `json:"rateLimitBps"`  // 限速值 (bits per second)
-    Active       bool      `json:"active"`
-    CreatedAt    time.Time `json:"createdAt"`
-}
-
-// Manager QoS 策略管理器
-type Manager struct {
-    mu       sync.Mutex
-    policies map[string]*Policy
-    store    store.ThrottleStore
-}
-
-// ApplyPolicy 创建或更新限速策略
-// 内部调用: New-NetQosPolicy -Name <name> -AppPathName <exe> -ThrottleRateActionBitsPerSecond <rate>
-func (m *Manager) ApplyPolicy(policy Policy) error { ... }
-
-// RemovePolicy 移除限速策略
-// 内部调用: Remove-NetQosPolicy -Name <name> -Confirm:$False
-func (m *Manager) RemovePolicy(policyID string) error { ... }
-
-// ListPolicies 列出所有由 NetTamer 创建的限速策略
-func (m *Manager) ListPolicies() ([]Policy, error) { ... }
-
-// SyncWithSystem 同步系统中实际存在的 QoS 策略与本地记录
-func (m *Manager) SyncWithSystem() error { ... }
-```
-
-**PowerShell 调用封装：**
-
-```go
-// throttle/powershell.go — PowerShell 命令封装
-
-package throttle
-
-// execPowerShell 执行 PowerShell 命令并返回输出
-func execPowerShell(script string) (string, error) {
-    cmd := exec.Command("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
-    cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-    output, err := cmd.CombinedOutput()
-    return string(output), err
-}
-
-// createQosPolicy 创建 QoS 策略
-func createQosPolicy(name, appPath string, rateBps uint64) error {
-    script := fmt.Sprintf(
-        `New-NetQosPolicy -Name "%s" -AppPathNameMatchCondition "%s" -ThrottleRateActionBitsPerSecond %d -PolicyStore ActiveStore`,
-        name, appPath, rateBps,
-    )
-    _, err := execPowerShell(script)
-    return err
+    pub fn stop(&self) -> Result<(), WinDivertError> { todo!() }
 }
 ```
 
-#### 5.2.5 进程信息模块 (`internal/process`)
+#### 5.2.4 限速编排模块 (`throttle`)
 
-```go
-// process/info.go — 进程元数据查询
+```rust
+// throttle/manager.rs — 基于 WinDivert 的限速策略管理
 
-package process
-
-// Info 进程基础信息
-type Info struct {
-    PID      uint32 `json:"pid"`
-    Name     string `json:"name"`
-    Path     string `json:"path"`
-    IconB64  string `json:"iconB64"`  // Base64 编码的进程图标
-    User     string `json:"user"`
+/// 限速策略
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Policy {
+    pub id: String,
+    pub name: String,
+    pub process_name: String,       // 可执行文件名 (如 "chrome.exe")
+    pub rate_limit_bps: u64,        // 限速值 (bits/sec)，0 表示不限
+    pub limit_upload: bool,
+    pub limit_download: bool,
+    pub active: bool,
+    pub created_at: i64,
 }
 
-// Resolver 进程信息解析器（带缓存）
-type Resolver struct {
-    cache  *lru.Cache[uint32, *Info]
-    mu     sync.RWMutex
+/// 限速表（进程 → 令牌桶）
+pub struct ThrottleTable {
+    buckets: std::sync::RwLock<HashMap<u32, TokenBucket>>,
 }
 
-// Resolve 根据 PID 获取进程信息，优先从缓存读取
-func (r *Resolver) Resolve(pid uint32) (*Info, error) { ... }
+impl ThrottleTable {
+    pub fn apply_policy(&self, policy: Policy, pid: u32) { todo!() }
+    pub fn remove_policy(&self, id: &str) { todo!() }
+    pub fn list_policies(&self) -> Vec<Policy> { todo!() }
+    /// 令牌桶裁决：true = 允许通过，false = 需丢弃/缓冲
+    pub fn admit(&self, pid: u32, bytes: usize) -> bool { todo!() }
+}
 ```
 
-#### 5.2.6 数据持久化模块 (`internal/store`)
+**WinDivert 调用封装（令牌桶 + 受控重发）：**
 
-```go
-// store/store.go — SQLite 数据存储
+```rust
+// windivert/rate_limiter.rs — 令牌桶限速裁决
 
-package store
-
-// DB 数据库管理器
-type DB struct {
-    db *sql.DB
+/// 令牌桶
+pub struct TokenBucket {
+    capacity: f64,
+    tokens: f64,
+    refill_rate: f64,   // tokens/sec == bytes/sec
+    last: std::time::Instant,
 }
 
-// 接口定义
-type AlertStore interface {
-    SaveRule(rule alert.Rule) error
-    DeleteRule(id string) error
-    ListRules() ([]alert.Rule, error)
-    SaveAlertEvent(event alert.AlertEvent) error
-    ListAlertEvents(filter AlertEventFilter) ([]alert.AlertEvent, error)
+impl TokenBucket {
+    pub fn new(rate_bps: u64) -> Self {
+        let rate = rate_bps as f64 / 8.0; // bits/sec → bytes/sec
+        Self { capacity: rate, tokens: rate, refill_rate: rate, last: std::time::Instant::now() }
+    }
+    /// 尝试领取 n 字节的令牌，成功返回 true
+    pub fn try_consume(&mut self, n: usize) -> bool { todo!() }
+}
+```
+
+#### 5.2.5 进程信息模块 (`process`)
+
+```rust
+// process/info.rs — 进程元数据 + 端口→PID 映射
+
+/// 进程基础信息
+pub struct Info {
+    pub pid: u32,
+    pub name: String,
+    pub path: String,
+    pub icon_b64: String,   // Base64 编码的进程图标
+    pub user: String,
 }
 
-type ThrottleStore interface {
-    SavePolicy(policy throttle.Policy) error
-    DeletePolicy(id string) error
-    ListPolicies() ([]throttle.Policy, error)
+/// 端口→PID 映射维护器（结合 ETW 连接事件 与 GetExtendedTcpTable）
+pub struct PortPidMap {
+    map: std::sync::RwLock<HashMap<SocketAddr, u32>>,
+}
+impl PortPidMap {
+    pub fn lookup(&self, addr: &SocketAddr) -> Option<u32> { todo!() }
+    pub fn refresh(&self) { todo!() }
+}
+```
+
+#### 5.2.6 数据持久化模块 (`store`)
+
+```rust
+// store/store.rs — SQLite 数据存储 (rusqlite)
+
+pub struct Db {
+    pool: r2d2::Pool<rusqlite::ConnectionManager>,
 }
 
-type ConfigStore interface {
-    Get(key string) (string, error)
-    Set(key, value string) error
+pub trait AlertStore {
+    fn save_rule(&self, rule: &alert::Rule) -> Result<()>;
+    fn delete_rule(&self, id: &str) -> Result<()>;
+    fn list_rules(&self) -> Result<Vec<alert::Rule>>;
+    fn save_alert_event(&self, ev: &alert::AlertEvent) -> Result<()>;
+    fn list_alert_events(&self, filter: AlertEventFilter) -> Result<Vec<alert::AlertEvent>>;
+}
+
+pub trait ThrottleStore {
+    fn save_policy(&self, p: &throttle::Policy) -> Result<()>;
+    fn delete_policy(&self, id: &str) -> Result<()>;
+    fn list_policies(&self) -> Result<Vec<throttle::Policy>>;
+}
+
+pub trait ConfigStore {
+    fn get(&self, key: &str) -> Result<Option<String>>;
+    fn set(&self, key: &str, value: &str) -> Result<()>;
 }
 ```
 
@@ -566,6 +554,7 @@ type ConfigStore interface {
 | Vue Router | 页面路由 |
 | uPlot / ECharts | 实时速率图表 |
 | VueUse | 通用组合式函数 |
+| Tauri JS API (`@tauri-apps/api`) | 命令调用 + 事件监听 |
 
 ### 6.2 页面设计
 
@@ -598,7 +587,7 @@ type ConfigStore interface {
 ### 6.3 页面路由
 
 | 路由 | 页面 | 功能 |
-|------|------|------|
+|------|------|
 | `/` | Dashboard | 仪表盘总览，实时速率图表 + Top 进程 |
 | `/processes` | ProcessList | 全部活跃进程列表，支持搜索、排序、操作 |
 | `/alerts` | AlertConfig | 预警规则管理 + 预警历史 |
@@ -614,44 +603,24 @@ frontend/src/
 │   └── images/
 ├── components/              # 全局共享组件
 │   ├── ui/                  # shadcn-vue 组件（自动生成）
-│   │   ├── button/
-│   │   ├── card/
-│   │   ├── dialog/
-│   │   ├── table/
-│   │   ├── toast/
-│   │   └── ...
 │   ├── layout/              # 布局组件
-│   │   ├── AppSidebar.vue
-│   │   ├── AppHeader.vue
-│   │   └── AppLayout.vue
 │   ├── charts/              # 图表组件
-│   │   ├── SpeedChart.vue
-│   │   └── SpeedGauge.vue
 │   └── common/              # 通用业务组件
-│       ├── ProcessIcon.vue
-│       ├── SpeedBadge.vue
-│       └── StatusIndicator.vue
-├── composables/             # 组合式函数
-│   ├── useProcessMonitor.ts # 封装 Wails 绑定: 进程监控
-│   ├── useAlertRules.ts     # 封装 Wails 绑定: 预警规则
-│   ├── useThrottle.ts       # 封装 Wails 绑定: 限速管理
-│   ├── useConfig.ts         # 封装 Wails 绑定: 配置管理
+├── composables/             # 组合式函数（封装 Tauri invoke/listen）
+│   ├── useProcessMonitor.ts # 封装 Tauri 命令: 进程监控
+│   ├── useAlertRules.ts     # 封装 Tauri 命令: 预警规则
+│   ├── useThrottle.ts       # 封装 Tauri 命令: 限速管理
+│   ├── useConfig.ts         # 封装 Tauri 命令: 配置管理
 │   └── useFormatters.ts     # 速率格式化 (bytes → KB/s, MB/s)
 ├── lib/                     # 工具函数
 │   └── utils.ts             # shadcn-vue cn() 工具
 ├── router/                  # 路由配置
-│   └── index.ts
 ├── stores/                  # Pinia 状态管理
-│   ├── processStore.ts      # 进程数据状态
-│   ├── alertStore.ts        # 预警状态
-│   ├── throttleStore.ts     # 限速状态
-│   └── settingsStore.ts     # 全局设置状态
+│   ├── processStore.ts
+│   ├── alertStore.ts
+│   ├── throttleStore.ts
+│   └── settingsStore.ts
 ├── views/                   # 页面视图
-│   ├── DashboardView.vue
-│   ├── ProcessListView.vue
-│   ├── AlertConfigView.vue
-│   ├── ThrottleManagerView.vue
-│   └── SettingsView.vue
 ├── App.vue
 ├── main.ts
 └── style.css                # Tailwind 入口 + 全局样式
@@ -685,31 +654,31 @@ interface ProcessState {
 }
 
 export const useProcessStore = defineStore('process', () => {
-  // Wails EventsOn 监听后端推送的实时数据
+  // 通过 @tauri-apps/api/event 的 listen() 接收后端推送的实时数据
   // 前端不轮询，后端定时推送
 })
 ```
 
 ### 6.6 前后端通信机制
 
-NetTamer 的前后端通信采用 **Wails v3 双向绑定** 机制：
+NetTamer 的前后端通信采用 **Tauri 命令（Command）+ 事件（Event）** 机制：
 
-- **方法调用**：前端通过 `wails3 generate bindings` 自动生成的 TypeScript 客户端直接调用 Go Service 方法，类型安全
-- **事件推送**：后端通过 `application.EmitEvent()` 向前端推送实时数据，前端通过 `wails.Events.On()` 监听
+- **方法调用**：前端通过 `@tauri-apps/api/core` 的 `invoke()` 调用后端 `#[tauri::command]`，类型安全（TS 侧可手写类型或使用代码生成）
+- **事件推送**：后端通过 `app.emit()` 向前端推送实时数据，前端通过 `@tauri-apps/api/event` 的 `listen()` 监听
 
 ```
 ┌─────────────┐                    ┌─────────────┐
-│   Vue 前端   │                    │   Go 后端    │
+│   Vue 前端   │                    │  Rust 后端   │
 ├─────────────┤                    ├─────────────┤
-│             │  ── 方法调用 ──→     │             │
-│ composable  │  生成的 TS 绑定      │ Service     │
-│ useXxx()    │  (类型安全)         │ Methods     │
+│             │  ── invoke ──→      │             │
+│ composable  │  (类型安全)         │ #[tauri::   │
+│ useXxx()    │                    │  command]   │
 │             │  ←── 返回值 ──      │             │
 │             │                    │             │
-│             │  ←── 事件推送 ──    │             │
-│ Events.On() │  app.EmitEvent     │ EmitEvent   │
-│             │  ("speed:update",  │  定时推送    │
-│             │    processStats)   │  速率数据    │
+│             │  ←── emit 事件 ──   │             │
+│ listen()    │  app.emit          │ emit 定时   │
+│             │  ("speed:update",  │ 推送速率    │
+│             │    processStats)   │ 数据        │
 └─────────────┘                    └─────────────┘
 ```
 
@@ -717,7 +686,7 @@ NetTamer 的前后端通信采用 **Wails v3 双向绑定** 机制：
 
 | 事件名 | 方向 | 数据 | 频率 |
 |--------|------|------|------|
-| `speed:update` | 后端 → 前端 | `[]ProcessStats` | 1s |
+| `speed:update` | 后端 → 前端 | `ProcessStats[]` | 1s |
 | `alert:triggered` | 后端 → 前端 | `AlertEvent` | 按需 |
 | `throttle:changed` | 后端 → 前端 | `Policy` | 按需 |
 | `system:stats` | 后端 → 前端 | 总速率、CPU 等 | 1s |
@@ -774,54 +743,88 @@ Session:    Real-time (非文件记录模式)
 | **Ring Buffer** | ETW 事件先写入无锁环形缓冲区，消费者批量读取，避免 channel 锁争用 |
 | **批量聚合** | 每 100ms 批量处理一次累积事件，而非逐条处理 |
 | **PID 缓存** | 进程名/路径/图标等元信息使用 LRU 缓存，避免重复系统调用 |
+| **端口→PID 表** | 由 ETW 连接事件 + `GetExtendedTcpTable` 共同维护，供 WinDivert 限速时查表 |
 | **采样降级** | 当事件速率超过阈值（如 10万条/秒）时，自动降低采样率 |
-| **零分配解析** | 事件解析过程中尽量复用 buffer，减少 GC 压力 |
+| **零分配解析** | 事件解析过程中尽量复用 buffer，减少堆分配压力 |
 
 ---
 
-## 8. QoS 限速模块
+## 8. WinDivert 数据包拦截与限速模块
 
-### 8.1 Windows QoS Policy 工作原理
+### 8.1 WinDivert 工作原理
 
 ```
-用户空间                    内核空间
-
-┌──────────┐            ┌──────────────────┐
-│ NetTamer │            │   TCP/IP Stack   │
-│          │            │                  │
-│ PowerShell───────────▶│  QoS 策略引擎     │
-│ New-Net   │           │  ┌────────────┐  │
-│ QosPolicy │           │  │ 令牌桶算法   │  │
-│          │            │  │ Token      │  │
-│          │            │  │  Bucket    │  │
-│          │            │  └────┬───────┘  │
-│          │            │       │          │
-│          │            │  ┌────▼───────┐  │
-│          │            │  │ 出站队列    │  │
-│          │            │  │ 按策略限速  │  │
-│          │            │  └────┬───────┘  │
-│          │            │       │          │
-└──────────┘            └───────┼──────────┘
-                                │
-                        ┌───────▼──────────┐
-                        │   Network NIC     │
-                        └──────────────────┘
+用户空间                                   内核空间 (WFP)
+┌──────────────────────┐            ┌──────────────────────────┐
+│ NetTamer             │            │   TCP/IP Stack / WFP      │
+│                      │            │                          │
+│  WinDivert.dll ──────┼──────────▶ │  WFP Filter (callout)    │
+│   WinDivertRecv      │ 捕获数据包  │  数据包被重定向到用户态    │
+│                      │            │                          │
+│  ┌────────────────┐  │            │                          │
+│  │ 分类(端口→PID) │  │            │                          │
+│  │ 令牌桶裁决     │  │            │                          │
+│  └──────┬─────────┘  │            │                          │
+│         │ 放行        │            │                          │
+│         │ 丢弃        │            │                          │
+│         │ 修改+重发 ───┼──────────▶ │  WinDivertSend 重新注入   │
+│         │             │            │                          │
+└──────────────────────┘            └──────────────────────────┘
+         ▲                                   │
+         │                          ┌────────▼──────────┐
+         │                          │   Network NIC     │
+         │                          └───────────────────┘
 ```
 
-### 8.2 策略命名规范
+WinDivert 基于 **Windows Filtering Platform (WFP)**，在用户态即可：
+- **拦截 (Recv)**：从网络栈捕获 IP 数据包
+- **修改**：解析并改写包头（源/目的地址、端口、可选载荷标记）
+- **重发 (Send)**：将（可能修改后的）数据包重新注入网络栈
+- **过滤**：通过 WinDivert 过滤表达式精确匹配目标流量
 
-为避免与系统中其他 QoS 策略冲突，NetTamer 创建的策略使用统一前缀：
+### 8.2 限速实现策略
+
+WinDivert 限速采用 **令牌桶 + 受控重发**，支持 **上传 (Egress) 与下载 (Ingress) 双向**：
+
+```
+对每个被限速进程维护一个 TokenBucket（速率 = rate_limit_bps / 8 bytes/sec）：
+
+  数据包到达 (WinDivertRecv):
+    1. 通过 端口→PID 表 定位所属进程
+    2. 查该进程是否处于限速策略（且方向匹配）
+    3. TokenBucket.try_consume(packet_len)?
+       ├─ 成功  → 直接/修改后 WinDivertSend 放行
+       └─ 失败  → 上传方向: 直接丢弃（触发 TCP 拥塞控制自然降速）
+                 下载方向: 缓冲到有界队列，按令牌补充节奏 WinDivertSend 重发
+```
+
+| 方向 | 实现 | 说明 |
+|------|------|------|
+| 上传 (Egress) | `WinDivertOpen("outbound", ...)` 捕获出站包 | 超量直接丢弃即可有效限速 |
+| 下载 (Ingress) | `WinDivertOpen("inbound", ...)` 捕获入站包 | 采用缓冲 + 受控重发，避免连接中断 |
+
+### 8.3 过滤规则与策略命名
+
+WinDivert 过滤表达式示例：
+
+```
+# 仅捕获 TCP/UDP 流量
+"tcp or udp"
+
+# 仅捕获某端口段（可结合端口→PID 表在应用层细分到进程）
+"tcp.DstPort >= 1 and tcp.DstPort <= 65535"
+```
+
+限速策略在 SQLite 中以 `Policy` 结构持久化（见 §10），并通过 `ThrottleTable` 维护运行时令牌桶。策略命名使用统一前缀避免冲突：
 
 ```
 策略名称格式: NT_{ProcessName}_{UniqueID}
-
 示例:
   NT_chrome_a1b2c3
   NT_steam_d4e5f6
-  NT_onedrive_g7h8i9
 ```
 
-### 8.3 策略生命周期管理
+### 8.4 策略生命周期管理
 
 ```
 ┌────────┐    ┌────────┐    ┌────────┐    ┌────────┐
@@ -835,25 +838,27 @@ Session:    Real-time (非文件记录模式)
               │ Remove │
               │ 清理策略│
               └────────┘
-
-应用退出时的清理策略:
-  1. 列出所有 NT_ 前缀的 QoS 策略
-  2. 逐一调用 Remove-NetQosPolicy 清理
-  3. 同步更新本地数据库状态
 ```
 
-### 8.4 限速范围说明
+应用退出时的清理策略：
+1. 停止 WinDivert 捕获循环，关闭 handle
+2. 清空 `ThrottleTable` 令牌桶
+3. 同步更新本地数据库状态
 
-> **⚠️ 重要说明**
+### 8.5 过滤/修改扩展点
+
+> **预留能力**
 >
-> **Windows 原生 QoS Policy 仅支持出站（上传）方向的流量限速。**
-> 下载方向的限速无法通过原生 QoS 实现，需要 WFP 内核驱动或第三方方案。
-> NetTamer v1.0 仅提供上传限速功能，下载限速纳入未来路线图。
+> WinDivert 的「修改 + 重发」链路为未来的规则处理预留空间：
+> - 数据包改写（端口映射、标记）
+> - 基于规则的流量重定向 / 阻断
+> - 自定义过滤表达式 DSL（前端配置 → 后端 `set_filter`）
 
-| 方向 | 支持状态 | 实现方案 |
-|------|---------|---------|
-| 上传 (Egress) | ✅ v1.0 | Windows QoS Policy |
-| 下载 (Ingress) | 🔮 未来 | WFP Callout Driver（需评估） |
+| 能力 | v2.0 状态 | 说明 |
+|------|----------|------|
+| 上传限速 | ✅ | WinDivert 令牌桶 + 丢弃 |
+| 下载限速 | ✅ | WinDivert 缓冲 + 受控重发 |
+| 数据包修改/重发 | 🔧 基础 | 框架已具备，界面/规则待扩展 |
 
 ---
 
@@ -866,8 +871,6 @@ Session:    Real-time (非文件记录模式)
 │              预警规则 (Rule)              │
 ├──────────────┬──────────────────────────┤
 │ 匹配条件      │ 进程名 (支持通配符 *)     │
-│              │ 如: "chrome.exe"         │
-│              │ 如: "*.exe"             │
 ├──────────────┼──────────────────────────┤
 │ 触发条件      │ 上传速率 > 阈值 (bytes/s) │
 │              │ 持续时间 > N 秒           │
@@ -877,44 +880,32 @@ Session:    Real-time (非文件记录模式)
 │              │ (可选) 自动应用限速策略    │
 ├──────────────┼──────────────────────────┤
 │ 冷却控制      │ 冷却时间 (默认 60s)       │
-│              │ 防止短时间内重复告警       │
 └──────────────┴──────────────────────────┘
 ```
 
 ### 9.2 预警判定流程
 
-```go
-// 伪代码: 预警判定逻辑
+```rust
+// 伪代码: 预警判定逻辑 (Rust)
 
-func (e *Engine) Evaluate(stats []ProcessStats) {
-    for _, stat := range stats {
-        for _, rule := range e.rules {
-            if !rule.Enabled { continue }
-            if !matchProcess(rule.ProcessName, stat.Name) { continue }
+impl Engine {
+    pub fn evaluate(&self, stats: &[ProcessStats]) {
+        for stat in stats {
+            for rule in self.rules.values() {
+                if !rule.enabled { continue; }
+                if !match_process(&rule.process_name, &stat.name) { continue; }
 
-            rate := stat.UploadRate  // 当前上传速率
-            if rate > rule.Threshold {
-                key := rule.ID + ":" + stat.Name
-
-                // 检查冷却期
-                if lastFired, ok := e.cooldowns[key]; ok {
-                    if time.Since(lastFired) < rule.CooldownDuration() {
-                        continue  // 仍在冷却期内，跳过
+                let rate = stat.upload_rate;
+                if rate > rule.threshold {
+                    let key = format!("{}:{}", rule.id, stat.name);
+                    if let Some(last) = self.cooldowns.get(&key) {
+                        if last.elapsed() < rule.cooldown() { continue; }
                     }
+                    let event = AlertEvent { /* ... */ };
+                    self.alert_tx.send(event.clone()).ok();
+                    self.cooldowns.insert(key, Instant::now());
+                    self.store.save_alert_event(&event).ok();
                 }
-
-                // 触发预警
-                event := AlertEvent{
-                    RuleID:      rule.ID,
-                    ProcessName: stat.Name,
-                    PID:         stat.PID,
-                    CurrentRate: rate,
-                    Threshold:   rule.Threshold,
-                    TriggeredAt: time.Now(),
-                }
-                e.alertCh <- event
-                e.cooldowns[key] = time.Now()
-                e.store.SaveAlertEvent(event)
             }
         }
     }
@@ -925,10 +916,10 @@ func (e *Engine) Evaluate(stats []ProcessStats) {
 
 | 方式 | 实现 | 说明 |
 |------|------|------|
-| Windows Toast 通知 | `go-toast` 或 Win32 API | 系统级弹窗，即使应用最小化也可见 |
+| Windows Toast 通知 | Tauri `notification` 插件 / Win32 API | 系统级弹窗，即使应用最小化也可见 |
 | 应用内 Toast | shadcn-vue `<Toast>` | 应用窗口内的轻量提醒 |
 | 声音提示 | 系统音效 | 可配置开关 |
-| 自动限速 | QoS Manager | 可选：触发预警后自动创建限速策略 |
+| 自动限速 | ThrottleTable | 可选：触发预警后自动创建限速策略 |
 
 ---
 
@@ -966,9 +957,11 @@ CREATE INDEX idx_alert_events_time ON alert_events(triggered_at DESC);
 -- 限速策略表
 CREATE TABLE throttle_policies (
     id            TEXT PRIMARY KEY,
-    name          TEXT NOT NULL UNIQUE,   -- QoS 策略名 (NT_ 前缀)
+    name          TEXT NOT NULL UNIQUE,   -- 策略名 (NT_ 前缀)
     process_name  TEXT NOT NULL,          -- 可执行文件名
     rate_limit_bps INTEGER NOT NULL,      -- 限速值 (bits/sec)
+    limit_upload  INTEGER DEFAULT 1,
+    limit_download INTEGER DEFAULT 1,
     active        INTEGER DEFAULT 1,
     created_at    DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at    DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -989,135 +982,107 @@ INSERT INTO config (key, value) VALUES
     ('alert_sound', 'true');
 ```
 
+> SQLite 实现采用 `rusqlite`（同步，配 `r2d2` 连接池）或 `sqlx`（异步）。数据库文件存放于用户 AppData 目录。
+
 ---
 
-## 11. Wails v3 绑定层设计
+## 11. Tauri 命令与事件层设计
 
-### 11.1 Service 架构
+### 11.1 Command 架构
 
-Wails v3 采用 **Service 化架构**，每个 Service 是一个自包含的模块化组件，支持生命周期钩子。通过 `wails3 generate bindings` 静态源码分析自动生成类型安全的 TypeScript 绑定（保留 JSDoc 注释和参数名）。
+Tauri 2.0 采用显式 **Command** 暴露后端能力。所有命令在 `lib.rs` 中通过 `#[tauri::command]` 定义，并在 `tauri::Builder` 中 `invoke_handler(tauri::generate_handler![...])` 注册。通过 **Capability** 配置限定前端可调用范围，强化安全。
 
-```go
-// main.go — Wails v3 应用主入口
+```rust
+// src-tauri/src/lib.rs — Tauri 应用入口
 
-package main
-
-import (
-    "embed"
-    "log"
-
-    "github.com/wailsapp/wails/v3/pkg/application"
-)
-
-//go:embed frontend/dist
-var assets embed.FS
-
-func main() {
-    // 创建 Wails v3 应用 (过程式 API)
-    app := application.New(application.Options{
-        Name:        "NetTamer",
-        Description: "进程级网络监控与流量整形工具",
-        Services: []application.Service{
-            // 注册各 Service，Wails 自动生成 TS 绑定
-            application.NewService(service.NewMonitorService()),
-            application.NewService(service.NewAlertService()),
-            application.NewService(service.NewThrottleService()),
-            application.NewService(service.NewConfigService()),
-        },
-        Assets: application.AssetOptions{
-            Handler: application.AssetFileServerFS(assets),
-        },
-    })
-
-    // 创建主窗口 (v3 支持多窗口)
-    app.NewWebviewWindowWithOptions(application.WebviewWindowOptions{
-        Title:     "NetTamer - 网络驯兽师",
-        Width:     1200,
-        Height:    800,
-        MinWidth:  900,
-        MinHeight: 600,
-    })
-
-    // 运行应用
-    if err := app.Run(); err != nil {
-        log.Fatal(err)
-    }
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())   // 系统通知
+        .plugin(tauri_plugin_tray_icon::init())       // 系统托盘
+        .plugin(tauri_plugin_autostart::init(...))    // 开机自启
+        .setup(|app| {
+            // 初始化 ETW 会话、WinDivert 引擎、Store、Aggregator
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            start_monitoring,
+            stop_monitoring,
+            get_process_list,
+            create_alert_rule,
+            list_alert_rules,
+            apply_throttle_policy,
+            remove_throttle_policy,
+            list_throttle_policies,
+            get_config,
+            set_config,
+        ])
+        .run(tauri::generate_context!())
+        .expect("error while running NetTamer");
 }
 ```
 
-### 11.2 Service 生命周期
+### 11.2 命令示例
 
-每个 Service 可实现可选的生命周期钩子：
+```rust
+// commands/monitor.rs
 
-```go
-// service/monitor_service.go — 监控服务示例
-
-package service
-
-type MonitorService struct {
-    app       *application.App
-    etw       *etw.Session
-    aggregator *monitor.Aggregator
+#[tauri::command]
+pub async fn start_monitoring(state: tauri::State<'_, AppState>) -> Result<(), String> {
+    state.etw_session.start().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
-func NewMonitorService() *MonitorService {
-    return &MonitorService{}
+#[tauri::command]
+pub async fn get_process_list(state: tauri::State<'_, AppState>) -> Result<Vec<ProcessStats>, String> {
+    Ok(state.aggregator.snapshot())
 }
 
-// ServiceStartup 在应用启动时自动调用
-func (s *MonitorService) ServiceStartup(ctx context.Context, options application.ServiceOptions) error {
-    s.app = options.App
-    // 初始化 ETW 会话和聚合器
-    return s.init()
-}
-
-// ServiceShutdown 在应用退出时自动调用
-func (s *MonitorService) ServiceShutdown() error {
-    // 清理 ETW 会话资源
-    return s.etw.Stop()
+#[tauri::command]
+pub async fn apply_throttle_policy(
+    state: tauri::State<'_, AppState>,
+    policy: Policy,
+) -> Result<(), String> {
+    state.throttle.apply(policy).map_err(|e| e.to_string())
 }
 ```
 
-### 11.2 Service 方法清单
+### 11.3 命令清单
 
-#### MonitorService
+#### 监控相关
 
-| 方法 | 签名 | 说明 |
+| 命令 | 签名 | 说明 |
 |------|------|------|
-| `StartMonitoring` | `() error` | 启动 ETW 监控 |
-| `StopMonitoring` | `() error` | 停止 ETW 监控 |
-| `GetProcessList` | `() []ProcessStats` | 获取当前进程列表快照 |
-| `GetProcessDetail` | `(pid uint32) *ProcessDetail` | 获取单个进程详细信息 |
-| `SetRefreshInterval` | `(ms int) error` | 设置刷新频率 |
+| `start_monitoring` | `() -> Result<(), String>` | 启动 ETW 监控 |
+| `stop_monitoring` | `() -> Result<(), String>` | 停止 ETW 监控 |
+| `get_process_list` | `() -> Result<Vec<ProcessStats>, String>` | 获取当前进程列表快照 |
+| `set_refresh_interval` | `(ms: u64) -> Result<(), String>` | 设置刷新频率 |
 
-#### AlertService
+#### 预警相关
 
-| 方法 | 签名 | 说明 |
+| 命令 | 签名 | 说明 |
 |------|------|------|
-| `CreateRule` | `(rule Rule) error` | 创建预警规则 |
-| `UpdateRule` | `(rule Rule) error` | 更新预警规则 |
-| `DeleteRule` | `(id string) error` | 删除预警规则 |
-| `ListRules` | `() []Rule` | 获取所有预警规则 |
-| `GetAlertHistory` | `(filter Filter) []AlertEvent` | 查询预警历史 |
-| `ClearAlertHistory` | `() error` | 清空预警历史 |
+| `create_alert_rule` | `(rule: Rule) -> Result<(), String>` | 创建预警规则 |
+| `update_alert_rule` | `(rule: Rule) -> Result<(), String>` | 更新预警规则 |
+| `delete_alert_rule` | `(id: String) -> Result<(), String>` | 删除预警规则 |
+| `list_alert_rules` | `() -> Result<Vec<Rule>, String>` | 获取所有预警规则 |
+| `get_alert_history` | `(filter: Filter) -> Result<Vec<AlertEvent>, String>` | 查询预警历史 |
 
-#### ThrottleService
+#### 限速相关
 
-| 方法 | 签名 | 说明 |
+| 命令 | 签名 | 说明 |
 |------|------|------|
-| `ApplyPolicy` | `(policy Policy) error` | 创建/更新限速策略 |
-| `RemovePolicy` | `(id string) error` | 移除限速策略 |
-| `ListPolicies` | `() []Policy` | 列出所有限速策略 |
-| `SyncPolicies` | `() error` | 与系统 QoS 策略同步 |
+| `apply_throttle_policy` | `(policy: Policy) -> Result<(), String>` | 创建/更新限速策略（驱动 WinDivert 令牌桶） |
+| `remove_throttle_policy` | `(id: String) -> Result<(), String>` | 移除限速策略 |
+| `list_throttle_policies` | `() -> Result<Vec<Policy>, String>` | 列出所有限速策略 |
 
-#### ConfigService
+#### 配置相关
 
-| 方法 | 签名 | 说明 |
+| 命令 | 签名 | 说明 |
 |------|------|------|
-| `GetConfig` | `(key string) string` | 获取配置项 |
-| `SetConfig` | `(key, value string) error` | 设置配置项 |
-| `GetAllConfig` | `() map[string]string` | 获取所有配置 |
-| `ResetConfig` | `() error` | 重置为默认配置 |
+| `get_config` | `(key: String) -> Result<Option<String>, String>` | 获取配置项 |
+| `set_config` | `(key: String, value: String) -> Result<(), String>` | 设置配置项 |
+| `get_all_config` | `() -> Result<HashMap<String, String>, String>` | 获取所有配置 |
 
 ---
 
@@ -1125,34 +1090,62 @@ func (s *MonitorService) ServiceShutdown() error {
 
 ```
 NetTamer/
-├── build/                          # Wails 构建配置与平台资源
-│   ├── appicon.png                 # 应用图标
-│   ├── windows/                    # Windows 特定构建资源
-│   │   ├── icon.ico
-│   │   ├── info.json               # 版本信息
-│   │   └── wails.exe.manifest      # UAC 管理员权限清单
-│   ├── darwin/                     # macOS 构建资源 (可选)
-│   └── linux/                      # Linux 构建资源 (可选)
+├── src-tauri/                       # Rust 后端 (Tauri 2.0)
+│   ├── Cargo.toml                   # Rust 依赖 (tauri, windows-sys, windivert, rusqlite, tokio, serde)
+│   ├── build.rs                     # Tauri 构建脚本
+│   ├── tauri.conf.json              # Tauri 配置 (窗口/权限/插件)
+│   ├── capabilities/                # 权限 Capability 配置
+│   │   └── default.json
+│   ├── icons/                       # 应用图标
+│   ├── src/
+│   │   ├── main.rs                  # 入口 (调用 lib::run)
+│   │   ├── lib.rs                   # Tauri Builder + 插件 + 命令注册
+│   │   ├── state.rs                 # 全局共享状态 (AppState)
+│   │   ├── etw/                     # ETW 事件跟踪 (windows-sys)
+│   │   │   ├── session.rs
+│   │   │   ├── decoder.rs
+│   │   │   └── provider.rs
+│   │   ├── monitor/                 # 速率监控与聚合
+│   │   │   ├── aggregator.rs
+│   │   │   └── ewma.rs
+│   │   ├── windivert/               # 数据包拦截/修改/重发/过滤
+│   │   │   ├── engine.rs
+│   │   │   └── rate_limiter.rs      # 令牌桶
+│   │   ├── throttle/                # 限速策略编排
+│   │   │   └── manager.rs
+│   │   ├── alert/                   # 预警引擎
+│   │   │   ├── engine.rs
+│   │   │   └── matcher.rs
+│   │   ├── process/                 # 进程信息 + 端口→PID
+│   │   │   ├── info.rs
+│   │   │   └── port_map.rs
+│   │   ├── store/                   # 数据存储 (SQLite)
+│   │   │   ├── store.rs
+│   │   │   └── migrations.rs
+│   │   ├── config/                  # 配置管理
+│   │   │   └── config.rs
+│   │   ├── notify/                  # 系统通知
+│   │   │   └── toast.rs
+│   │   ├── tray/                    # 系统托盘
+│   │   │   └── tray.rs
+│   │   └── commands/                # Tauri Command 暴露层
+│   │       ├── monitor.rs
+│   │       ├── alert.rs
+│   │       ├── throttle.rs
+│   │       └── config.rs
+│   └── bin/                         # WinDivert 驱动/二进制随包分发
+│       └── WinDivert.dll / WinDivert.sys
 │
-├── doc/                            # 项目文档
-│   ├── architecture.md             # 架构设计文档 (本文件)
-│   ├── api-reference.md            # API 参考
-│   └── dev-guide.md                # 开发指南
-│
-├── frontend/                       # Vue 3 前端项目
+├── frontend/                        # Vue 3 前端项目
 │   ├── public/
-│   ├── dist/                       # 前端构建产物 (go:embed)
-│   ├── bindings/                   # Wails v3 自动生成的 TS 绑定 (勿手动编辑)
-│   │   └── github.com/
-│   │       └── .../service/        # 按 Go 包路径组织的绑定
 │   ├── src/
 │   │   ├── assets/
 │   │   ├── components/
-│   │   │   ├── ui/                 # shadcn-vue 组件
+│   │   │   ├── ui/                  # shadcn-vue 组件
 │   │   │   ├── layout/
 │   │   │   ├── charts/
 │   │   │   └── common/
-│   │   ├── composables/
+│   │   ├── composables/             # 封装 @tauri-apps/api invoke/listen
 │   │   ├── lib/
 │   │   ├── router/
 │   │   ├── stores/
@@ -1161,63 +1154,14 @@ NetTamer/
 │   │   ├── main.ts
 │   │   └── style.css
 │   ├── index.html
-│   ├── components.json             # shadcn-vue 配置
+│   ├── components.json              # shadcn-vue 配置
 │   ├── tailwind.config.js
 │   ├── tsconfig.json
 │   ├── vite.config.ts
 │   └── package.json
 │
-├── internal/                       # Go 内部包 (不对外导出)
-│   ├── etw/                        # ETW 事件跟踪
-│   │   ├── session.go              # ETW 会话管理
-│   │   ├── decoder.go              # 事件解码器
-│   │   ├── provider.go             # Provider 常量定义
-│   │   └── session_test.go
-│   │
-│   ├── monitor/                    # 速率监控与聚合
-│   │   ├── aggregator.go           # 速率聚合器
-│   │   ├── ewma.go                 # EWMA 算法
-│   │   └── aggregator_test.go
-│   │
-│   ├── alert/                      # 预警引擎
-│   │   ├── engine.go               # 规则引擎
-│   │   ├── matcher.go              # 进程名匹配
-│   │   └── engine_test.go
-│   │
-│   ├── throttle/                   # QoS 限速
-│   │   ├── manager.go              # 策略管理器
-│   │   ├── powershell.go           # PowerShell 命令封装
-│   │   └── manager_test.go
-│   │
-│   ├── process/                    # 进程信息
-│   │   ├── resolver.go             # 进程信息解析
-│   │   ├── icon.go                 # 图标提取
-│   │   └── resolver_test.go
-│   │
-│   ├── store/                      # 数据存储
-│   │   ├── sqlite.go               # SQLite 实现
-│   │   ├── migrations.go           # 数据库迁移
-│   │   └── sqlite_test.go
-│   │
-│   ├── config/                     # 配置管理
-│   │   └── config.go
-│   │
-│   ├── notify/                     # 系统通知
-│   │   └── toast.go                # Windows Toast 通知
-│   │
-│   └── tray/                       # 系统托盘 (v3 原生支持)
-│       └── tray.go
-│
-├── service/                        # Wails v3 Service 层 (自动生成 TS 绑定)
-│   ├── monitor_service.go          # 监控服务 (ServiceStartup/Shutdown)
-│   ├── alert_service.go            # 预警服务
-│   ├── throttle_service.go         # 限速服务
-│   └── config_service.go           # 配置服务
-│
-├── main.go                         # Wails v3 应用入口 (application.New)
-├── Taskfile.yml                    # Wails v3 构建任务配置 (替代 Makefile)
-├── go.mod
-├── go.sum
+├── doc/                             # 项目文档
+│   └── architecture.md              # 架构设计文档 (本文件)
 ├── README.md
 └── .gitignore
 ```
@@ -1228,41 +1172,45 @@ NetTamer/
 
 ### 13.1 UAC 管理员权限
 
-NetTamer 的核心功能（ETW 和 QoS）均需要管理员权限。通过 Windows 清单文件 (`wails.exe.manifest`) 声明 `requireAdministrator`：
+NetTamer 的核心功能（ETW 和 WinDivert）均需要管理员权限：
 
-```xml
-<!-- build/windows/wails.exe.manifest -->
-<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
-    <security>
-      <requestedPrivileges>
-        <requestedExecutionLevel level="requireAdministrator" uiAccess="false"/>
-      </requestedPrivileges>
-    </security>
-  </trustInfo>
-</assembly>
+- **ETW**：实时内核会话需要 `SeSystemProfilePrivilege` / 管理员组
+- **WinDivert**：加载 `WinDivert.sys` 驱动需要管理员权限
+
+通过 Tauri 2.0 的 `tauri.conf.json` 配置 `runasadmin`（或内嵌 manifest 声明 `requireAdministrator`）：
+
+```json
+// src-tauri/tauri.conf.json (节选)
+{
+  "bundle": {
+    "windows": {
+      "requestedExecutionLevel": "requireAdministrator"
+    }
+  }
+}
 ```
 
 ### 13.2 安全设计考量
 
 | 风险 | 缓解措施 |
 |------|---------|
-| PowerShell 注入 | 所有参数使用白名单校验 + 参数化拼接，禁止拼接用户输入到命令字符串 |
-| QoS 策略残留 | 应用退出时自动清理 NT_ 前缀策略；异常退出后下次启动自动检查清理 |
-| 数据库安全 | SQLite 使用参数化查询，数据库文件存放在用户 AppData 目录 |
-| 进程信息泄露 | 仅在本地 WebView 中渲染，不暴露任何网络端口 |
+| 命令越权调用 | Tauri 2.0 Capability 机制限定前端可调用命令集合 |
+| WinDivert 驱动加载 | 仅使用官方签名驱动；随包分发并校验版本，禁止从网络动态下载 |
+| 数据包误丢/误改 | 限速仅在明确策略下生效；令牌桶策略可灰度和回滚 |
+| 数据库安全 | SQLite 参数化查询，数据库文件存放于用户 AppData 目录 |
+| 进程信息泄露 | 仅在本地 WebView 中渲染，Tauri 默认不暴露任何网络端口 |
 
-### 13.3 QoS Policy 注册表配置
-
-在非域环境下，需要确保本地 QoS 策略被系统遵守：
+### 13.3 WinDivert 驱动部署
 
 ```
-注册表路径: HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\Tcpip\QoS
-键名: Do not use NLA
-值:  1 (DWORD)
+随包分发文件:
+  WinDivert.dll   (用户态库)
+  WinDivert.sys   (内核驱动，需管理员加载)
 
-NetTamer 首次启动时自动检查并设置此注册表项。
+首次启动时:
+  1. 校验驱动文件签名与版本
+  2. 以管理员权限加载 WinDivert.sys（若尚未加载）
+  3. 打开 WinDivert 句柄，应用默认过滤表达式
 ```
 
 ---
@@ -1287,17 +1235,17 @@ NetTamer 首次启动时自动检查并设置此注册表项。
 │                     性能优化策略矩阵                          │
 ├──────────────┬───────────────────────────────────────────────┤
 │ 后端 ETW     │ • Ring Buffer 无锁队列                        │
-│              │ • 批量事件处理 (100ms 批次)                    │
-│              │ • 对象池复用 (sync.Pool)                       │
+│  (windows-sys)│ • 批量事件处理 (100ms 批次)                   │
+│              │ • 对象复用 (避免频繁堆分配)                    │
 │              │ • 高频事件采样降级                              │
 ├──────────────┼───────────────────────────────────────────────┤
-│ 后端聚合     │ • EWMA 平滑算法                               │
-│              │ • 增量计算，避免全量遍历                        │
-│              │ • 进程退出时自动清理过期数据                     │
+│ 后端 WinDivert│ • 端口→PID 查表 O(1)                          │
+│              │ • 令牌桶增量计算，避免全量遍历                   │
+│              │ • 下载限速有界缓冲，防止内存膨胀                 │
 ├──────────────┼───────────────────────────────────────────────┤
 │ 前后端通信   │ • 事件推送而非轮询                              │
-│              │ • 差量更新 (仅推送变化的进程数据)                │
-│              │ • 数据序列化优化                               │
+│  (Tauri)     │ • 差量更新 (仅推送变化的进程数据)                │
+│              │ • 数据序列化优化 (serde)                        │
 ├──────────────┼───────────────────────────────────────────────┤
 │ 前端渲染     │ • 虚拟滚动列表 (100+ 进程场景)                 │
 │              │ • 图表数据降采样                               │
@@ -1313,40 +1261,32 @@ NetTamer 首次启动时自动检查并设置此注册表项。
 ### 15.1 构建流程
 
 ```bash
-# 安装 Wails v3 CLI
-go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+# 前端依赖安装与构建
+pnpm install
+pnpm build              # 输出 frontend/dist
 
-# 初始化项目 (Vue + TypeScript 模板)
-wails3 init -n NetTamer -t vue-ts
-
-# 生成 TypeScript 绑定 (静态源码分析)
-wails3 generate bindings
+# Rust / Tauri 构建（需 Windows + 管理员权限用于打包签名校验）
+cargo tauri build       # 或: pnpm tauri build
 
 # 开发模式 (热重载)
-wails3 dev
-
-# 生产构建
-wails3 build
-
-# 使用 Taskfile 运行自定义任务
-wails3 task build:windows
-wails3 task package:nsis
+cargo tauri dev         # 或: pnpm tauri dev
 ```
 
 ### 15.2 发布产物
 
 | 产物 | 说明 | 大小预估 |
 |------|------|---------|
-| `NetTamer.exe` | 便携版单文件 | ~10MB |
-| `NetTamer-Setup.exe` | NSIS 安装包 | ~12MB |
+| `NetTamer.exe` | 便携版单文件（含 WinDivert 驱动分发） | ~10MB |
+| `NetTamer-Setup.exe` | NSIS / WiX 安装包 | ~12MB |
 
 ### 15.3 运行时依赖
 
 | 依赖 | 说明 | 内置情况 |
 |------|------|---------|
 | WebView2 | 界面渲染引擎 | Windows 10 1809+ / Windows 11 内置 |
-| PowerShell | QoS 策略管理 | Windows 内置 |
+| WinDivert 驱动 | 数据包拦截/重发 | **随包分发**（WinDivert.dll / .sys） |
 | .NET / Node.js | 无 | **不需要** |
+| Rust 运行时 | 静态链接 | 无需额外运行时 |
 
 ---
 
@@ -1355,9 +1295,9 @@ wails3 task package:nsis
 ### Phase 1: MVP — 核心监控 (2 周)
 
 ```
-[ ] 项目脚手架搭建 (Wails v3 + Vue 3 + shadcn-vue)
-[ ] ETW 事件跟踪模块开发
-[ ] 速率聚合计算引擎
+[ ] 项目脚手架搭建 (Tauri 2.0 + Vue 3 + shadcn-vue)
+[ ] ETW 事件跟踪模块开发 (windows-sys)
+[ ] 速率聚合计算引擎 (EWMA)
 [ ] 进程列表基础界面
 [ ] 实时速率显示 (上传/下载)
 ```
@@ -1367,18 +1307,18 @@ wails3 task package:nsis
 ```
 [ ] 预警规则 CRUD
 [ ] 预警引擎判定逻辑
-[ ] Windows Toast 系统通知
+[ ] Windows Toast 系统通知 (Tauri notification 插件)
 [ ] 预警历史记录
 [ ] 预警配置界面
 ```
 
-### Phase 3: QoS 限速 (1 周)
+### Phase 3: WinDivert 限速 (1 周)
 
 ```
-[ ] PowerShell QoS 策略封装
+[ ] WinDivert 引擎集成 (拦截/重发/过滤)
+[ ] 端口→PID 映射与令牌桶限速
 [ ] 限速策略管理 (创建/修改/删除)
-[ ] 策略生命周期管理 (清理/同步)
-[ ] 限速管理界面
+[ ] 双向 (上传+下载) 限速管理界面
 ```
 
 ### Phase 4: 打磨与增强 (1 周)
@@ -1386,9 +1326,9 @@ wails3 task package:nsis
 ```
 [ ] 仪表盘总览页面
 [ ] 实时速率折线图
-[ ] 系统托盘支持
+[ ] 系统托盘支持 (Tauri tray 插件)
 [ ] 暗色/亮色主题切换
-[ ] 开机自启配置
+[ ] 开机自启配置 (Tauri autostart 插件)
 [ ] 性能优化与压力测试
 [ ] 打包发布 (便携版 + 安装包)
 ```
@@ -1396,7 +1336,7 @@ wails3 task package:nsis
 ### Phase 5: 未来规划
 
 ```
-[ ] 下载限速 (WFP 方案调研)
+[ ] 数据包修改/重写规则 DSL（利用 WinDivert 修改+重发能力）
 [ ] 网络连接详情 (IP / 域名 / 端口)
 [ ] 历史流量统计与图表
 [ ] 进程分组与标签
@@ -1412,20 +1352,22 @@ wails3 task package:nsis
 
 | 资源 | 链接 |
 |------|------|
-| Wails v3 官方文档 | https://v3.wails.io/ |
+| Tauri 2.0 官方文档 | https://v2.tauri.app/ |
 | shadcn-vue 文档 | https://www.shadcn-vue.com |
 | ETW 概述 (Microsoft) | https://learn.microsoft.com/en-us/windows/win32/etw |
-| tekert/goetw | https://github.com/tekert/goetw |
-| New-NetQosPolicy | https://learn.microsoft.com/en-us/powershell/module/netqos/new-netqospolicy |
-| Windows QoS 策略 | https://learn.microsoft.com/en-us/windows-server/networking/technologies/qos/qos-policy-top |
+| windows-rs (windows / windows-sys) | https://github.com/microsoft/windows-rs |
+| WinDivert 官方 | https://www.reqrypt.org/windivert.html |
+| WinDivert Rust crate | https://crates.io/crates/windivert (用户态 FFI 封装) |
+| WFP 概述 (Microsoft) | https://learn.microsoft.com/en-us/windows/win32/fwp |
 
 ### B. 术语表
 
 | 术语 | 全称 | 说明 |
 |------|------|------|
-| ETW | Event Tracing for Windows | Windows 内核级事件跟踪设施 |
-| QoS | Quality of Service | 网络服务质量，用于流量整形 |
-| WFP | Windows Filtering Platform | Windows 过滤平台，用于网络包过滤 |
+| ETW | Event Tracing for Windows | Windows 内核级事件跟踪设施（用于监控统计） |
+| WFP | Windows Filtering Platform | Windows 过滤平台，WinDivert 底层依托 |
+| WinDivert | Windows Divert | 用户态数据包拦截/修改/重发/过滤库 |
+| QoS | Quality of Service | 网络服务质量；本方案改由 WinDivert 实现 |
 | EWMA | Exponentially Weighted Moving Average | 指数加权移动平均 |
 | PID | Process Identifier | 进程标识符 |
 | UAC | User Account Control | 用户账户控制 |
