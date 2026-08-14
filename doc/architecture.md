@@ -100,7 +100,7 @@
 ┌──────────────────────────────────────────────────────────────────┐
 │                           技术栈                                  │
 ├──────────────┬───────────────────────────────────────────────────┤
-│ 桌面框架      │ Wails v2                                         │
+│ 桌面框架      │ Wails v3 (Beta)                                  │
 │ 后端语言      │ Go 1.22+                                        │
 │ 前端框架      │ Vue 3 (Composition API) + TypeScript             │
 │ UI 组件库     │ shadcn-vue + Tailwind CSS                        │
@@ -116,13 +116,27 @@
 
 ### 3.2 关键技术选型说明
 
-#### 3.2.1 Wails v2 — 桌面应用框架
+#### 3.2.1 Wails v3 — 桌面应用框架
 
 **选型理由：**
 - Go 原生绑定，无需 Node.js 运行时
 - 使用系统 WebView2（Windows 默认内置），安装包体积极小（~8MB）
-- 前后端类型安全的自动绑定（Go struct ↔ TypeScript interface）
-- 支持系统托盘、原生菜单、原生对话框
+- **Service 化架构**：后端逻辑封装为模块化的 Service，支持生命周期钩子（`ServiceStartup` / `ServiceShutdown`）
+- **静态源码分析绑定**：通过 `wails3 generate bindings` 基于源码分析生成 TypeScript 绑定，保留 JSDoc 注释与参数名
+- **原生多窗口支持**：一等公民级别的多窗口创建、管理与销毁
+- **原生系统托盘支持**：内置统一的 `app.SystemTray` API，支持托盘图标、菜单及点击事件
+- **Taskfile 构建系统**：透明可检查的 `Taskfile.yml`，替代 v2 的不透明构建流程
+
+**Wails v3 vs v2 关键变化：**
+
+| 特性 | Wails v2 | Wails v3 |
+|------|---------|----------|
+| API 风格 | 声明式 (`wails.Run`) | 过程式（显式 app/window 生命周期） |
+| 窗口管理 | 单窗口 | 多窗口（动态管理） |
+| 绑定机制 | 反射 (Reflection) | 静态源码分析（更丰富的类型绑定） |
+| 构建系统 | 内置不透明 | Taskfile（可检查/可扩展） |
+| 系统托盘 | 社区方案 / 受限 | 原生一等支持 |
+| 服务注册 | `Bind: []interface{}` | `Services: []application.Service` |
 
 #### 3.2.2 ETW — 网络事件跟踪
 
@@ -678,19 +692,22 @@ export const useProcessStore = defineStore('process', () => {
 
 ### 6.6 前后端通信机制
 
-NetTamer 的前后端通信采用 **Wails 双向绑定** 机制：
+NetTamer 的前后端通信采用 **Wails v3 双向绑定** 机制：
+
+- **方法调用**：前端通过 `wails3 generate bindings` 自动生成的 TypeScript 客户端直接调用 Go Service 方法，类型安全
+- **事件推送**：后端通过 `application.EmitEvent()` 向前端推送实时数据，前端通过 `wails.Events.On()` 监听
 
 ```
 ┌─────────────┐                    ┌─────────────┐
 │   Vue 前端   │                    │   Go 后端    │
 ├─────────────┤                    ├─────────────┤
 │             │  ── 方法调用 ──→     │             │
-│ composable  │  wails.Call(...)    │  Bound      │
-│ useXxx()    │                    │  Methods    │
+│ composable  │  生成的 TS 绑定      │ Service     │
+│ useXxx()    │  (类型安全)         │ Methods     │
 │             │  ←── 返回值 ──      │             │
 │             │                    │             │
 │             │  ←── 事件推送 ──    │             │
-│ EventsOn()  │  wails.EventEmit   │  EventEmit  │
+│ Events.On() │  app.EmitEvent     │ EmitEvent   │
 │             │  ("speed:update",  │  定时推送    │
 │             │    processStats)   │  速率数据    │
 └─────────────┘                    └─────────────┘
@@ -974,45 +991,90 @@ INSERT INTO config (key, value) VALUES
 
 ---
 
-## 11. Wails 绑定层设计
+## 11. Wails v3 绑定层设计
 
-### 11.1 绑定服务定义
+### 11.1 Service 架构
 
-Wails 通过 Go struct 的公开方法自动生成 TypeScript 绑定。我们将后端功能组织为多个 Service struct：
+Wails v3 采用 **Service 化架构**，每个 Service 是一个自包含的模块化组件，支持生命周期钩子。通过 `wails3 generate bindings` 静态源码分析自动生成类型安全的 TypeScript 绑定（保留 JSDoc 注释和参数名）。
 
 ```go
-// app.go — Wails 应用主入口
+// main.go — Wails v3 应用主入口
 
 package main
 
-func main() {
-    // 初始化各服务
-    monitorSvc  := service.NewMonitorService(etwSession, aggregator, processResolver)
-    alertSvc    := service.NewAlertService(alertEngine, store)
-    throttleSvc := service.NewThrottleService(qosManager, store)
-    configSvc   := service.NewConfigService(store)
+import (
+    "embed"
+    "log"
 
-    // 创建 Wails 应用
-    err := wails.Run(&options.App{
-        Title:     "NetTamer",
+    "github.com/wailsapp/wails/v3/pkg/application"
+)
+
+//go:embed frontend/dist
+var assets embed.FS
+
+func main() {
+    // 创建 Wails v3 应用 (过程式 API)
+    app := application.New(application.Options{
+        Name:        "NetTamer",
+        Description: "进程级网络监控与流量整形工具",
+        Services: []application.Service{
+            // 注册各 Service，Wails 自动生成 TS 绑定
+            application.NewService(service.NewMonitorService()),
+            application.NewService(service.NewAlertService()),
+            application.NewService(service.NewThrottleService()),
+            application.NewService(service.NewConfigService()),
+        },
+        Assets: application.AssetOptions{
+            Handler: application.AssetFileServerFS(assets),
+        },
+    })
+
+    // 创建主窗口 (v3 支持多窗口)
+    app.NewWebviewWindowWithOptions(application.WebviewWindowOptions{
+        Title:     "NetTamer - 网络驯兽师",
         Width:     1200,
         Height:    800,
         MinWidth:  900,
         MinHeight: 600,
-        AssetServer: &assetserver.Options{
-            Assets: assets,
-        },
-        OnStartup: func(ctx context.Context) {
-            monitorSvc.SetContext(ctx)
-            alertSvc.SetContext(ctx)
-        },
-        Bind: []interface{}{
-            monitorSvc,
-            alertSvc,
-            throttleSvc,
-            configSvc,
-        },
     })
+
+    // 运行应用
+    if err := app.Run(); err != nil {
+        log.Fatal(err)
+    }
+}
+```
+
+### 11.2 Service 生命周期
+
+每个 Service 可实现可选的生命周期钩子：
+
+```go
+// service/monitor_service.go — 监控服务示例
+
+package service
+
+type MonitorService struct {
+    app       *application.App
+    etw       *etw.Session
+    aggregator *monitor.Aggregator
+}
+
+func NewMonitorService() *MonitorService {
+    return &MonitorService{}
+}
+
+// ServiceStartup 在应用启动时自动调用
+func (s *MonitorService) ServiceStartup(ctx context.Context, options application.ServiceOptions) error {
+    s.app = options.App
+    // 初始化 ETW 会话和聚合器
+    return s.init()
+}
+
+// ServiceShutdown 在应用退出时自动调用
+func (s *MonitorService) ServiceShutdown() error {
+    // 清理 ETW 会话资源
+    return s.etw.Stop()
 }
 ```
 
@@ -1063,13 +1125,14 @@ func main() {
 
 ```
 NetTamer/
-├── build/                          # Wails 构建配置与资源
+├── build/                          # Wails 构建配置与平台资源
 │   ├── appicon.png                 # 应用图标
 │   ├── windows/                    # Windows 特定构建资源
 │   │   ├── icon.ico
 │   │   ├── info.json               # 版本信息
 │   │   └── wails.exe.manifest      # UAC 管理员权限清单
-│   └── README.md
+│   ├── darwin/                     # macOS 构建资源 (可选)
+│   └── linux/                      # Linux 构建资源 (可选)
 │
 ├── doc/                            # 项目文档
 │   ├── architecture.md             # 架构设计文档 (本文件)
@@ -1078,6 +1141,10 @@ NetTamer/
 │
 ├── frontend/                       # Vue 3 前端项目
 │   ├── public/
+│   ├── dist/                       # 前端构建产物 (go:embed)
+│   ├── bindings/                   # Wails v3 自动生成的 TS 绑定 (勿手动编辑)
+│   │   └── github.com/
+│   │       └── .../service/        # 按 Go 包路径组织的绑定
 │   ├── src/
 │   │   ├── assets/
 │   │   ├── components/
@@ -1138,21 +1205,19 @@ NetTamer/
 │   ├── notify/                     # 系统通知
 │   │   └── toast.go                # Windows Toast 通知
 │   │
-│   └── tray/                       # 系统托盘
+│   └── tray/                       # 系统托盘 (v3 原生支持)
 │       └── tray.go
 │
-├── service/                        # Wails 绑定服务层
-│   ├── monitor_service.go          # 监控服务 (前端绑定)
-│   ├── alert_service.go            # 预警服务 (前端绑定)
-│   ├── throttle_service.go         # 限速服务 (前端绑定)
-│   └── config_service.go           # 配置服务 (前端绑定)
+├── service/                        # Wails v3 Service 层 (自动生成 TS 绑定)
+│   ├── monitor_service.go          # 监控服务 (ServiceStartup/Shutdown)
+│   ├── alert_service.go            # 预警服务
+│   ├── throttle_service.go         # 限速服务
+│   └── config_service.go           # 配置服务
 │
-├── main.go                         # Wails 应用入口
-├── app.go                          # 应用生命周期管理
-├── wails.json                      # Wails 项目配置
+├── main.go                         # Wails v3 应用入口 (application.New)
+├── Taskfile.yml                    # Wails v3 构建任务配置 (替代 Makefile)
 ├── go.mod
 ├── go.sum
-├── Makefile                        # 构建脚本
 ├── README.md
 └── .gitignore
 ```
@@ -1248,18 +1313,24 @@ NetTamer 首次启动时自动检查并设置此注册表项。
 ### 15.1 构建流程
 
 ```bash
-# 开发模式
-wails dev
+# 安装 Wails v3 CLI
+go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+
+# 初始化项目 (Vue + TypeScript 模板)
+wails3 init -n NetTamer -t vue-ts
+
+# 生成 TypeScript 绑定 (静态源码分析)
+wails3 generate bindings
+
+# 开发模式 (热重载)
+wails3 dev
 
 # 生产构建
-wails build -platform windows/amd64
+wails3 build
 
-# 带 NSIS 安装包
-wails build -platform windows/amd64 -nsis
-
-# 交叉编译 (macOS/Linux 上为 Windows 构建)
-# 需要 tekert/goetw (无 CGO) 支持
-GOOS=windows GOARCH=amd64 wails build
+# 使用 Taskfile 运行自定义任务
+wails3 task build:windows
+wails3 task package:nsis
 ```
 
 ### 15.2 发布产物
@@ -1284,7 +1355,7 @@ GOOS=windows GOARCH=amd64 wails build
 ### Phase 1: MVP — 核心监控 (2 周)
 
 ```
-[ ] 项目脚手架搭建 (Wails + Vue 3 + shadcn-vue)
+[ ] 项目脚手架搭建 (Wails v3 + Vue 3 + shadcn-vue)
 [ ] ETW 事件跟踪模块开发
 [ ] 速率聚合计算引擎
 [ ] 进程列表基础界面
@@ -1341,7 +1412,7 @@ GOOS=windows GOARCH=amd64 wails build
 
 | 资源 | 链接 |
 |------|------|
-| Wails 官方文档 | https://wails.io/docs |
+| Wails v3 官方文档 | https://v3.wails.io/ |
 | shadcn-vue 文档 | https://www.shadcn-vue.com |
 | ETW 概述 (Microsoft) | https://learn.microsoft.com/en-us/windows/win32/etw |
 | tekert/goetw | https://github.com/tekert/goetw |
