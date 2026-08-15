@@ -99,6 +99,17 @@ const laneVehicles = reactive<Record<'up1' | 'up2' | 'down1' | 'down2', LaneVehi
   },
 })
 
+// Per-lane readiness flag: RiveCar emits 'ready' when the car is fully
+// loaded. The CSS drive animation only starts after this becomes true,
+// so the car is always a single car (never emoji/matrix) when it enters
+// the visible area.
+const carReady = reactive<Record<'up1' | 'up2' | 'down1' | 'down2', boolean>>({
+  up1: false,
+  up2: false,
+  down1: false,
+  down2: false,
+})
+
 // Query strictly real-time ETW active process for each track
 function fetchProcessForLane(laneKey: 'up1' | 'up2' | 'down1' | 'down2'): {
   rate: number
@@ -136,36 +147,9 @@ function fetchProcessForLane(laneKey: 'up1' | 'up2' | 'down1' | 'down2'): {
   }
 }
 
-function getCarTypeForProcess(name: string, rateMBps: number): number {
+function getCarTypeForProcess(name: string, _rateMBps: number): number {
   if (!name) return 0
-  const lower = name.toLowerCase()
-
-  // 1. Semantic process name matching
-  if (lower.includes('steam') || lower.includes('download') || lower.includes('torrent') || lower.includes('netdisk') || lower.includes('baidu')) {
-    return 0 // 🚚 Truck / 重型卡车
-  }
-  if (lower.includes('game') || lower.includes('epic') || lower.includes('lol') || lower.includes('genshin') || lower.includes('valorant')) {
-    return 5 // 🏎️ Supercar / 超跑
-  }
-  if (lower.includes('chrome') || lower.includes('edge') || lower.includes('browser') || lower.includes('firefox')) {
-    return 6 // 🚗 Coupe / 轿跑
-  }
-  if (lower.includes('wechat') || lower.includes('qq') || lower.includes('chat') || lower.includes('discord') || lower.includes('telegram')) {
-    return 14 // 🚗 Micro / 微型 Smart
-  }
-  if (lower.includes('music') || lower.includes('spotify') || lower.includes('cloudmusic')) {
-    return 2 // 🚗 Cabriolet / 敞篷车
-  }
-  if (lower.includes('git') || lower.includes('node') || lower.includes('code') || lower.includes('cmd')) {
-    return 8 // 🛻 Pickup / 皮卡
-  }
-
-  // 2. High-bandwidth mapping
-  if (rateMBps > 30) return 5 // Supercar
-  if (rateMBps > 10) return 11 // SUV
-  if (rateMBps > 2) return 13 // Sedan
-
-  // 3. Consistent Hash mapping
+  // Consistent hash: same process name always maps to the same car type (0-14)
   let hash = 0
   for (let i = 0; i < name.length; i++) {
     hash = name.charCodeAt(i) + ((hash << 5) - hash)
@@ -185,6 +169,7 @@ function syncLane(laneKey: 'up1' | 'up2' | 'down1' | 'down2') {
   if (p.rate > 0.001) {
     if (!v.isDriving) {
       // Start driving on the highway
+      carReady[laneKey] = false
       v.rateMBps = p.rate
       v.speedMbps = p.rate * 8
       v.durationSec = calculateDriveDuration(p.rate)
@@ -249,6 +234,7 @@ function handlePassCompleted(laneKey: 'up1' | 'up2' | 'down1' | 'down2') {
   const staggerWait = 200 + Math.random() * 400
   setTimeout(() => {
     if (fetchProcessForLane(laneKey).rate > 0.001) {
+      carReady[laneKey] = false
       v.runKey++
       v.isDriving = true
     }
@@ -387,8 +373,8 @@ onBeforeUnmount(() => {
             <div
               v-if="laneVehicles.up1.isDriving"
               :key="`up1-${laneVehicles.up1.runKey}`"
-              class="moving-car-runner drive-pass-left absolute"
-              :style="{ bottom: '-16px', '--drive-dur': `${laneVehicles.up1.durationSec}s` }"
+              :class="['moving-car-runner absolute', carReady.up1 ? 'drive-pass-left' : '']"
+              :style="{ bottom: '-16px', left: carReady.up1 ? undefined : 'calc(100% + 60px)', '--drive-dur': `${laneVehicles.up1.durationSec}s` }"
               @animationend="handlePassCompleted('up1')"
             >
               <RiveCar
@@ -400,6 +386,7 @@ onBeforeUnmount(() => {
                 :icon="laneVehicles.up1.icon"
                 :width="160"
                 :height="80"
+                @ready="carReady.up1 = true"
               />
             </div>
           </div>
@@ -422,8 +409,8 @@ onBeforeUnmount(() => {
             <div
               v-if="laneVehicles.up2.isDriving"
               :key="`up2-${laneVehicles.up2.runKey}`"
-              class="moving-car-runner drive-pass-left absolute"
-              :style="{ bottom: '-16px', '--drive-dur': `${laneVehicles.up2.durationSec}s` }"
+              :class="['moving-car-runner absolute', carReady.up2 ? 'drive-pass-left' : '']"
+              :style="{ bottom: '-16px', left: carReady.up2 ? undefined : 'calc(100% + 60px)', '--drive-dur': `${laneVehicles.up2.durationSec}s` }"
               @animationend="handlePassCompleted('up2')"
             >
               <RiveCar
@@ -435,6 +422,7 @@ onBeforeUnmount(() => {
                 :icon="laneVehicles.up2.icon"
                 :width="160"
                 :height="80"
+                @ready="carReady.up2 = true"
               />
             </div>
           </div>
@@ -481,8 +469,8 @@ onBeforeUnmount(() => {
             <div
               v-if="laneVehicles.down1.isDriving"
               :key="`down1-${laneVehicles.down1.runKey}`"
-              class="moving-car-runner drive-pass-right absolute"
-              :style="{ bottom: '-16px', '--drive-dur': `${laneVehicles.down1.durationSec}s` }"
+              :class="['moving-car-runner absolute', carReady.down1 ? 'drive-pass-right' : '']"
+              :style="{ bottom: '-16px', left: carReady.down1 ? undefined : '-190px', '--drive-dur': `${laneVehicles.down1.durationSec}s` }"
               @animationend="handlePassCompleted('down1')"
             >
               <RiveCar
@@ -494,6 +482,7 @@ onBeforeUnmount(() => {
                 :icon="laneVehicles.down1.icon"
                 :width="160"
                 :height="80"
+                @ready="carReady.down1 = true"
               />
             </div>
           </div>
@@ -516,8 +505,8 @@ onBeforeUnmount(() => {
             <div
               v-if="laneVehicles.down2.isDriving"
               :key="`down2-${laneVehicles.down2.runKey}`"
-              class="moving-car-runner drive-pass-right absolute"
-              :style="{ bottom: '-16px', '--drive-dur': `${laneVehicles.down2.durationSec}s` }"
+              :class="['moving-car-runner absolute', carReady.down2 ? 'drive-pass-right' : '']"
+              :style="{ bottom: '-16px', left: carReady.down2 ? undefined : '-190px', '--drive-dur': `${laneVehicles.down2.durationSec}s` }"
               @animationend="handlePassCompleted('down2')"
             >
               <RiveCar
@@ -529,6 +518,7 @@ onBeforeUnmount(() => {
                 :icon="laneVehicles.down2.icon"
                 :width="160"
                 :height="80"
+                @ready="carReady.down2 = true"
               />
             </div>
           </div>
