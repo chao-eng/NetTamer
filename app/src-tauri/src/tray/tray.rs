@@ -5,7 +5,6 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use super::speed_icon;
 
 pub const TRAY_ID: &str = "main-tray";
-pub const WIDGET_LABEL: &str = "taskbar-widget";
 pub const FLOATING_LABEL: &str = "floating-widget";
 pub const WIDGET_WIDTH: i32 = 160;
 
@@ -74,25 +73,6 @@ pub fn setup(app: &AppHandle) -> Result<(), crate::models::Error> {
         .build(app)
         .map_err(|e| crate::models::Error(e.to_string()))?;
 
-    // Create the taskbar speed widget transparent window (clicks pass through)
-    if let Ok(widget) = WebviewWindowBuilder::new(
-        app,
-        WIDGET_LABEL,
-        WebviewUrl::App("index.html#/taskbar-widget".into()),
-    )
-    .title("NetTamer Speed Widget")
-    .inner_size(WIDGET_WIDTH as f64, 40.0)
-    .decorations(false)
-    .transparent(true)
-    .always_on_top(false)
-    .skip_taskbar(true)
-    .resizable(false)
-    .shadow(false)
-    .visible(false)
-    .build() {
-        let _ = widget.set_ignore_cursor_events(true);
-    }
-
     // Create the desktop floating speed widget (draggable, always-on-top, theme-adaptive)
     let _ = WebviewWindowBuilder::new(
         app,
@@ -113,7 +93,7 @@ pub fn setup(app: &AppHandle) -> Result<(), crate::models::Error> {
     Ok(())
 }
 
-/// Dynamically update system tray tooltip, taskbar speed widget, and desktop floating widget.
+/// Dynamically update system tray tooltip, native taskbar speed overlay, and desktop floating widget.
 pub fn update_speed(app: &AppHandle, upload_rate: f64, download_rate: f64, taskbar_enabled: bool, floating_enabled: bool) {
     if let Some(tray) = app.tray_by_id(TRAY_ID) {
         let tooltip = format!(
@@ -124,30 +104,23 @@ pub fn update_speed(app: &AppHandle, upload_rate: f64, download_rate: f64, taskb
         let _ = tray.set_tooltip(Some(tooltip));
     }
 
-    if let Some(widget) = app.get_webview_window(WIDGET_LABEL) {
-        #[cfg(target_os = "windows")]
-        let is_fullscreen = is_fullscreen_running();
-
-        #[cfg(not(target_os = "windows"))]
-        let is_fullscreen = false;
-
-        if taskbar_enabled && !is_fullscreen {
+    #[cfg(target_os = "windows")]
+    {
+        if taskbar_enabled {
+            let is_fullscreen = is_fullscreen_running();
             if let Some((x, y, w, h)) = get_taskbar_speed_geometry(WIDGET_WIDTH) {
-                #[cfg(target_os = "windows")]
-                pin_taskbar_widget_window(&widget, x, y, w, h);
-
-                #[cfg(not(target_os = "windows"))]
-                {
-                    let _ = widget.set_size(tauri::Size::Physical(tauri::PhysicalSize { width: w, height: h }));
-                    let _ = widget.set_position(tauri::Position::Physical(tauri::PhysicalPosition { x, y }));
-                    let _ = widget.show();
-                }
+                super::native_overlay::update_native_taskbar_speed(
+                    upload_rate,
+                    download_rate,
+                    x,
+                    y,
+                    w,
+                    h,
+                    is_fullscreen,
+                );
             }
         } else {
-            #[cfg(target_os = "windows")]
-            hide_taskbar_widget_window(&widget);
-
-            let _ = widget.hide();
+            super::native_overlay::hide_native_taskbar_speed();
         }
     }
 
@@ -182,72 +155,6 @@ pub fn get_floating_default_position(app: &AppHandle) -> Option<(i32, i32)> {
         Some((x, y))
     } else {
         None
-    }
-}
-
-/// Pin taskbar widget to the exact same Z-order layer as the Windows taskbar (clicks pass through).
-#[cfg(target_os = "windows")]
-pub fn pin_taskbar_widget_window(widget: &tauri::WebviewWindow, x: i32, y: i32, w: u32, h: u32) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        FindWindowW, GetWindowLongW, SetWindowLongW, SetWindowPos, GWL_EXSTYLE, SWP_NOACTIVATE,
-        SWP_SHOWWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
-    };
-    use std::ffi::OsStr;
-    use std::os::windows::ffi::OsStrExt;
-
-    if let Ok(hwnd) = widget.hwnd() {
-        let hwnd_raw = hwnd.0 as windows_sys::Win32::Foundation::HWND;
-        unsafe {
-            let ex_style = GetWindowLongW(hwnd_raw, GWL_EXSTYLE);
-            let target_style = ex_style | (WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | WS_EX_TRANSPARENT) as i32;
-            if ex_style != target_style {
-                SetWindowLongW(hwnd_raw, GWL_EXSTYLE, target_style);
-            }
-
-            let tray_class: Vec<u16> = OsStr::new("Shell_TrayWnd")
-                .encode_wide()
-                .chain(std::iter::once(0))
-                .collect();
-            let hwnd_tray = FindWindowW(tray_class.as_ptr(), std::ptr::null());
-
-            // Place in the exact same Z-order layer immediately above the taskbar (not HWND_TOPMOST)
-            let insert_after = if hwnd_tray != 0 { hwnd_tray } else { 0 };
-
-            SetWindowPos(
-                hwnd_raw,
-                insert_after,
-                x,
-                y,
-                w as i32,
-                h as i32,
-                SWP_NOACTIVATE | SWP_SHOWWINDOW,
-            );
-        }
-    }
-}
-
-/// Instantly hide taskbar widget via native Win32 API.
-#[cfg(target_os = "windows")]
-pub fn hide_taskbar_widget_window(widget: &tauri::WebviewWindow) {
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        SetWindowPos, ShowWindow, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
-        SWP_NOZORDER, SW_HIDE,
-    };
-
-    if let Ok(hwnd) = widget.hwnd() {
-        let hwnd_raw = hwnd.0 as windows_sys::Win32::Foundation::HWND;
-        unsafe {
-            ShowWindow(hwnd_raw, SW_HIDE);
-            SetWindowPos(
-                hwnd_raw,
-                0,
-                0,
-                0,
-                0,
-                0,
-                SWP_HIDEWINDOW | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
-            );
-        }
     }
 }
 
