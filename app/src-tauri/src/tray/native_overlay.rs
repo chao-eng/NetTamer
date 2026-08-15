@@ -3,6 +3,7 @@
 //! Architecture:
 //! - Runs on an independent OS thread with its own Win32 message loop (`GetMessage` / `DispatchMessage`).
 //! - Tokio background runtime sends rate updates via thread-safe channel / PostMessage.
+//! - Uses `SetWinEventHook` (`EVENT_SYSTEM_FOREGROUND`) for zero-polling, event-driven fullscreen detection.
 //! - Uses Win32 Layered Window with ColorKey transparency (`LWA_COLORKEY`), click-through, and zero-activation.
 //! - Resource usage: < 2MB RAM, 0.00% CPU.
 
@@ -99,6 +100,9 @@ const SRCCOPY: u32 = 0x00CC0020;
 const BLACK_BRUSH: i32 = 4;
 const MONITOR_DEFAULTTONEAREST: u32 = 2;
 
+const EVENT_SYSTEM_FOREGROUND: u32 = 0x0003;
+const WINEVENT_OUTOFCONTEXT: u32 = 0x0000;
+
 #[link(name = "kernel32")]
 extern "system" {
     fn GetModuleHandleW(lpModuleName: *const u16) -> usize;
@@ -162,6 +166,26 @@ extern "system" {
         lpEnumFunc: Option<unsafe extern "system" fn(usize, isize) -> i32>,
         lParam: isize,
     ) -> i32;
+    fn SetWinEventHook(
+        eventMin: u32,
+        eventMax: u32,
+        hmodWinEventProc: usize,
+        pfn_win_event_proc: Option<
+            unsafe extern "system" fn(
+                h_win_event_hook: usize,
+                event: u32,
+                hwnd: usize,
+                id_object: i32,
+                id_child: i32,
+                id_event_thread: u32,
+                dwms_event_time: u32,
+            ),
+        >,
+        idProcess: u32,
+        idThread: u32,
+        dwFlags: u32,
+    ) -> usize;
+    fn UnhookWinEvent(hWinEventHook: usize) -> i32;
 }
 
 #[link(name = "gdi32")]
@@ -220,6 +244,7 @@ static LATEST_DATA: Lazy<Mutex<SpeedMessage>> = Lazy::new(|| {
 });
 static OVERLAY_HWND: Mutex<usize> = Mutex::new(0);
 static IS_INITIALIZED: AtomicBool = AtomicBool::new(false);
+static IS_FULLSCREEN_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 fn to_wide(s: &str) -> Vec<u16> {
     OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
@@ -260,6 +285,35 @@ pub fn send_speed_update(upload_rate: f64, download_rate: f64, enabled: bool) {
     if hwnd != 0 {
         unsafe {
             PostMessageW(hwnd, WM_USER_UPDATE, 0, 0);
+        }
+    }
+}
+
+/// Event-driven foreground change hook (zero polling).
+unsafe extern "system" fn foreground_event_proc(
+    _hook: usize,
+    _event: u32,
+    hwnd: usize,
+    _id_object: i32,
+    _id_child: i32,
+    _id_thread: u32,
+    _event_time: u32,
+) {
+    if hwnd == 0 {
+        return;
+    }
+
+    let is_fs = check_window_is_fullscreen(hwnd);
+    let prev = IS_FULLSCREEN_ACTIVE.swap(is_fs, Ordering::Relaxed);
+
+    if prev != is_fs {
+        let overlay_hwnd = *OVERLAY_HWND.lock().unwrap();
+        if overlay_hwnd != 0 {
+            if is_fs {
+                ShowWindow(overlay_hwnd, SW_HIDE);
+            } else {
+                PostMessageW(overlay_hwnd, WM_USER_UPDATE, 0, 0);
+            }
         }
     }
 }
@@ -306,11 +360,32 @@ fn run_overlay_thread_loop(_rx: Receiver<SpeedMessage>) {
             *h_lock = hwnd;
         }
 
+        // Initial foreground check
+        let fg = GetForegroundWindow();
+        if fg != 0 {
+            IS_FULLSCREEN_ACTIVE.store(check_window_is_fullscreen(fg), Ordering::Relaxed);
+        }
+
+        // Register event-driven foreground hook (zero polling)
+        let hook = SetWinEventHook(
+            EVENT_SYSTEM_FOREGROUND,
+            EVENT_SYSTEM_FOREGROUND,
+            0,
+            Some(foreground_event_proc),
+            0,
+            0,
+            WINEVENT_OUTOFCONTEXT,
+        );
+
         // Standard Win32 Message Loop on dedicated thread
         let mut msg: MSG = std::mem::zeroed();
         while GetMessageW(&mut msg, 0, 0, 0) > 0 {
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
+        }
+
+        if hook != 0 {
+            UnhookWinEvent(hook);
         }
 
         {
@@ -335,8 +410,8 @@ unsafe extern "system" fn overlay_wnd_proc(
                 return 0;
             }
 
-            // Check fullscreen auto-hide
-            if is_fullscreen_running() {
+            // Check event-driven fullscreen state
+            if IS_FULLSCREEN_ACTIVE.load(Ordering::Relaxed) {
                 ShowWindow(hwnd, SW_HIDE);
                 return 0;
             }
@@ -385,8 +460,8 @@ unsafe extern "system" fn overlay_wnd_proc(
                     -12, 0, 0, 0, FW_BOLD, 0, 0, 0, 1, 4, 0, 5, 0, font_name.as_ptr(),
                 );
                 if hfont == 0 {
-                    let fb = to_wide("Segoe UI");
-                    hfont = CreateFontW(-12, 0, 0, 0, FW_BOLD, 0, 0, 0, 1, 4, 0, 5, 0, fb.as_ptr());
+                    let font_name_fallback = to_wide("Segoe UI");
+                    hfont = CreateFontW(-12, 0, 0, 0, FW_BOLD, 0, 0, 0, 1, 4, 0, 5, 0, font_name_fallback.as_ptr());
                 }
 
                 let old_font = SelectObject(hdc_mem, hfont);
@@ -516,25 +591,24 @@ fn get_taskbar_speed_geometry(widget_width: i32) -> Option<(i32, i32, u32, u32)>
     }
 }
 
-fn is_fullscreen_running() -> bool {
-    unsafe {
-        let fg_hwnd = GetForegroundWindow();
-        if fg_hwnd == 0 {
-            return false;
-        }
+fn check_window_is_fullscreen(hwnd: usize) -> bool {
+    if hwnd == 0 {
+        return false;
+    }
 
+    unsafe {
         let desktop = GetDesktopWindow();
         let shell_tray = FindWindowW(
             to_wide("Shell_TrayWnd").as_ptr(),
             std::ptr::null(),
         );
 
-        if fg_hwnd == desktop || fg_hwnd == shell_tray {
+        if hwnd == desktop || hwnd == shell_tray {
             return false;
         }
 
         let mut class_buf = [0u16; 64];
-        let class_len = GetClassNameW(fg_hwnd, class_buf.as_mut_ptr(), 64);
+        let class_len = GetClassNameW(hwnd, class_buf.as_mut_ptr(), 64);
         if class_len > 0 {
             let class_name = String::from_utf16_lossy(&class_buf[..class_len as usize]);
             if class_name == "Progman"
@@ -547,11 +621,11 @@ fn is_fullscreen_running() -> bool {
         }
 
         let mut app_rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
-        if GetWindowRect(fg_hwnd, &mut app_rect) == 0 {
+        if GetWindowRect(hwnd, &mut app_rect) == 0 {
             return false;
         }
 
-        let hmon = MonitorFromWindow(fg_hwnd, MONITOR_DEFAULTTONEAREST);
+        let hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
         if hmon == 0 {
             return false;
         }
@@ -562,7 +636,7 @@ fn is_fullscreen_running() -> bool {
             return false;
         }
 
-        let style = GetWindowLongW(fg_hwnd, -16) as u32; // GWL_STYLE = -16
+        let style = GetWindowLongW(hwnd, -16) as u32; // GWL_STYLE = -16
         const WS_POPUP_FLAG: u32 = 0x80000000;
         const WS_CAPTION_FLAG: u32 = 0x00C00000;
 
