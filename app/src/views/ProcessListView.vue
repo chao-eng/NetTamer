@@ -86,9 +86,9 @@ async function createAlert() {
     id: `R_${selected.value.name}_${Date.now()}`,
     name: `预警-${selected.value.name}`,
     processName: selected.value.name,
-    threshold: Math.round(thresholdKb.value * 1024),
-    direction: direction.value,
-    cooldownSec: cooldown.value,
+    threshold: Math.round(Number(thresholdKb.value) * 1024),
+    direction: Number(direction.value),
+    cooldownSec: Number(cooldown.value),
     enabled: true,
     createdAt: Math.floor(Date.now() / 1000),
   }
@@ -210,7 +210,7 @@ onBeforeUnmount(() => {
           <Label>方向</Label>
           <Select
             v-model="direction"
-            :options="DIRECTION_OPTIONS.map((o) => ({ label: o.label, value: String(o.value) }))"
+            :options="DIRECTION_OPTIONS"
             class="mt-1"
           />
         </div>

@@ -31,9 +31,9 @@ async function createRule() {
     id: `R_${processName.value}_${Date.now()}`,
     name: name.value.trim() || `预警-${processName.value}`,
     processName: processName.value.trim(),
-    threshold: Math.round(thresholdKb.value * 1024),
-    direction: direction.value,
-    cooldownSec: cooldown.value,
+    threshold: Math.round(Number(thresholdKb.value) * 1024),
+    direction: Number(direction.value),
+    cooldownSec: Number(cooldown.value),
     enabled: true,
     createdAt: Math.floor(Date.now() / 1000),
   }
@@ -85,7 +85,7 @@ onMounted(async () => {
             <Select
               id="rdir"
               v-model="direction"
-              :options="DIRECTION_OPTIONS.map((o) => ({ label: o.label, value: String(o.value) }))"
+              :options="DIRECTION_OPTIONS"
               class="mt-1"
             />
           </div>
