@@ -1,7 +1,11 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { LayoutDashboard, List, Bell, Gauge, Settings, Car } from 'lucide-vue-next'
+import { LayoutDashboard, List, Bell, Gauge, Settings, Car, Sun, Moon, Minimize2 } from 'lucide-vue-next'
+import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { useSettingsStore } from '@/stores/settingsStore'
+import { invokeSafe } from '@/lib/ipc'
 
 const items = [
   { to: '/', label: '仪表盘', icon: LayoutDashboard },
@@ -13,6 +17,13 @@ const items = [
 ]
 
 const route = useRoute()
+const settings = useSettingsStore()
+
+const isDark = computed(() => (settings.config.theme ?? 'dark') === 'dark')
+
+async function minimizeToTray() {
+  await invokeSafe('minimize_to_tray', undefined, undefined)
+}
 </script>
 
 <template>
@@ -39,5 +50,29 @@ const route = useRoute()
         <span>{{ item.label }}</span>
       </RouterLink>
     </nav>
+
+    <div class="mt-auto flex flex-col gap-1 border-t pt-3">
+      <Button
+        variant="ghost"
+        size="sm"
+        class="justify-start gap-3 px-3 text-muted-foreground hover:text-foreground"
+        :aria-label="'切换主题'"
+        @click="settings.toggleTheme()"
+      >
+        <component :is="isDark ? Sun : Moon" class="h-4 w-4" />
+        <span class="text-sm font-medium">{{ isDark ? '切换浅色' : '切换深色' }}</span>
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="sm"
+        class="justify-start gap-3 px-3 text-muted-foreground hover:text-foreground"
+        aria-label="最小化到托盘"
+        @click="minimizeToTray()"
+      >
+        <Minimize2 class="h-4 w-4" />
+        <span class="text-sm font-medium">最小化到托盘</span>
+      </Button>
+    </div>
   </aside>
 </template>

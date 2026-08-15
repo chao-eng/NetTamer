@@ -25,7 +25,7 @@ use std::time::Duration;
 use tauri::{Emitter, Manager};
 
 // Bring every command into scope for `generate_handler!`.
-use crate::commands::{alert as alert_cmds, config as config_cmds, monitor as monitor_cmds, throttle as throttle_cmds};
+use crate::commands::{alert as alert_cmds, config as config_cmds, monitor as monitor_cmds, throttle as throttle_cmds, window as window_cmds};
 
 use crate::models::{AlertEvent, SystemStats};
 use crate::state::AppState;
@@ -179,6 +179,7 @@ pub fn run() {
             config_cmds::get_config,
             config_cmds::set_config,
             config_cmds::get_all_config,
+            window_cmds::minimize_to_tray,
         ])
         .run(tauri::generate_context!())
         .expect("error while running NetTamer");
