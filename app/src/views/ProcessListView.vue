@@ -150,6 +150,20 @@ onBeforeUnmount(() => {
                   <ProcessIcon :icon-b64="p.iconB64" :name="p.name" />
                   <span class="truncate">{{ p.name }}</span>
                   <Badge
+                    v-if="p.category === 'kernel'"
+                    variant="outline"
+                    class="text-[10px] px-1.5 py-0 h-4 bg-muted/80 text-muted-foreground border-border/80"
+                  >
+                    系统内核
+                  </Badge>
+                  <Badge
+                    v-else-if="p.category === 'windowsService'"
+                    variant="outline"
+                    class="text-[10px] px-1.5 py-0 h-4 bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+                  >
+                    系统服务
+                  </Badge>
+                  <Badge
                     v-if="firewallStore.isBlocked(p.name)"
                     variant="destructive"
                     class="ml-1 text-[10px] px-1.5 py-0 h-4 bg-red-500/15 text-red-500 border-red-500/20"
@@ -167,8 +181,17 @@ onBeforeUnmount(() => {
               </TableCell>
               <TableCell class="text-right">
                 <div class="flex justify-end gap-1.5">
+                  <!-- Kernel process cannot be blocked -->
+                  <Badge
+                    v-if="p.category === 'kernel'"
+                    variant="secondary"
+                    class="h-7 text-xs font-normal text-muted-foreground/70 bg-muted/40 cursor-not-allowed"
+                    title="Windows 系统内核核心流量，受系统保护无法阻断"
+                  >
+                    内核保护
+                  </Badge>
                   <Button
-                    v-if="firewallStore.isBlocked(p.name)"
+                    v-else-if="firewallStore.isBlocked(p.name)"
                     size="sm"
                     variant="outline"
                     class="h-7 gap-1 text-xs text-green-600 border-green-500/30 hover:bg-green-500/10"
@@ -213,8 +236,11 @@ onBeforeUnmount(() => {
           </div>
           <div>
             <div class="text-sm font-semibold">确认对「{{ selected?.name }}」执行断网？</div>
-            <div class="text-xs text-muted-foreground mt-0.5">
-              启用后，该进程发起的全部网络连接请求将在 Windows 内核 ALE 层被立即拦截。
+            <div v-if="selected?.category === 'windowsService'" class="text-xs text-amber-600 dark:text-amber-400 mt-1 font-medium bg-amber-500/10 p-2 rounded border border-amber-500/20">
+              ⚠️ 注意：该进程为 Windows 系统后台服务组件（Session 0），阻断联网可能影响部分系统网络功能。
+            </div>
+            <div v-else class="text-xs text-muted-foreground mt-0.5">
+              启用后，该进程发起的全部网络连接请求将在 Windows 内核 ALE 与防火墙层被立即拦截。
             </div>
           </div>
         </div>

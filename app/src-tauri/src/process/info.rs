@@ -7,6 +7,8 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use crate::models::ProcessCategory;
+
 /// Resolved metadata for a process.
 #[derive(Debug, Clone, Default)]
 #[allow(dead_code)]
@@ -14,6 +16,7 @@ pub struct Info {
     pub pid: u32,
     pub name: String,
     pub path: String,
+    pub category: ProcessCategory,
     /// Base64-encoded process icon (empty placeholder for now).
     pub icon_b64: String,
     pub user: String,
@@ -172,57 +175,105 @@ impl Resolver {
         None
     }
 
-    /// Query the OS for process name and path via Win32 APIs.
+    /// Query the OS for process name, path and category via Win32 APIs.
     fn query_process(pid: u32) -> Info {
-        // PID 0 (System Idle) and PID 4 (System) are special.
+        // PID 0 (System Idle) and PID 4 (System) are fixed kernel/system processes in Windows.
         if pid == 0 {
             return Info {
                 pid,
                 name: "System Idle Process".to_string(),
+                path: "[Windows Kernel]".to_string(),
+                category: ProcessCategory::Kernel,
                 ..Default::default()
             };
         }
         if pid == 4 {
             return Info {
                 pid,
-                name: "System".to_string(),
+                name: "Windows 系统网络 (System)".to_string(),
+                path: "[Windows Kernel]".to_string(),
+                category: ProcessCategory::Kernel,
                 ..Default::default()
             };
         }
 
         // Try QueryFullProcessImageNameW first.
-        if let Some(path) = Self::query_image_name(pid) {
-            let name = path
-                .rsplit('\\')
-                .next()
-                .unwrap_or(&path)
-                .to_string();
-            return Info {
-                pid,
-                name,
-                path,
-                icon_b64: String::new(),
-                user: String::new(),
-            };
-        }
+        let (name, path) = if let Some(p) = Self::query_image_name(pid) {
+            let n = p.rsplit('\\').next().unwrap_or(&p).to_string();
+            (n, p)
+        } else if let Some(n) = Self::query_via_snapshot(pid) {
+            (n, String::new())
+        } else {
+            (format!("pid_{}", pid), String::new())
+        };
 
-        // Fallback: try toolhelp snapshot.
-        if let Some(name) = Self::query_via_snapshot(pid) {
-            return Info {
-                pid,
-                name,
-                path: String::new(),
-                icon_b64: String::new(),
-                user: String::new(),
-            };
-        }
+        let category = Self::classify_process(pid, &name, &path);
 
-        // Last resort: use PID-based placeholder.
         Info {
             pid,
-            name: format!("pid_{}", pid),
-            ..Default::default()
+            name,
+            path,
+            category,
+            icon_b64: String::new(),
+            user: String::new(),
         }
+    }
+
+    /// Classify a process into Kernel, WindowsService, or UserApp.
+    fn classify_process(pid: u32, name: &str, path: &str) -> ProcessCategory {
+        if pid == 0 || pid == 4 {
+            return ProcessCategory::Kernel;
+        }
+
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn ProcessIdToSessionId(process_id: u32, session_id: *mut u32) -> i32;
+        }
+
+        // Check Windows Session ID (Session 0 is dedicated to Windows Services).
+        let mut session_id: u32 = 1;
+        let has_session = unsafe { ProcessIdToSessionId(pid, &mut session_id) };
+
+        if has_session != 0 && session_id == 0 {
+            return ProcessCategory::WindowsService;
+        }
+
+        // Known Windows system components / services
+        let name_lower = name.to_lowercase();
+        let known_services = [
+            "svchost.exe",
+            "services.exe",
+            "lsass.exe",
+            "csrss.exe",
+            "wininit.exe",
+            "smss.exe",
+            "spoolsv.exe",
+            "dwm.exe",
+            "fontdrvhost.exe",
+            "sihost.exe",
+            "ctfmon.exe",
+            "taskhostw.exe",
+            "runtimebroker.exe",
+            "searchhost.exe",
+            "startmenuexperiencehost.exe",
+            "searchindexer.exe",
+            "audiodg.exe",
+            "wlanext.exe",
+        ];
+
+        if known_services.contains(&name_lower.as_str()) {
+            return ProcessCategory::WindowsService;
+        }
+
+        // Check if path is in System32 / SysWOW64
+        let path_lower = path.to_lowercase();
+        if (path_lower.contains("\\windows\\system32\\") || path_lower.contains("\\windows\\syswow64\\"))
+            && (has_session != 0 && session_id == 0)
+        {
+            return ProcessCategory::WindowsService;
+        }
+
+        ProcessCategory::UserApp
     }
 
     /// Use `OpenProcess` + `QueryFullProcessImageNameW` to get the full image path.

@@ -8,6 +8,19 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Category of a process for security, filtering, and UI display.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub enum ProcessCategory {
+    /// Normal user desktop applications (e.g. Chrome, Steam, WeChat)
+    #[default]
+    UserApp,
+    /// Windows system background services (e.g. svchost.exe, lsass.exe, services.exe)
+    WindowsService,
+    /// Windows kernel & system core (PID 0 System Idle, PID 4 System)
+    Kernel,
+}
+
 /// A single process's network statistics snapshot.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -16,6 +29,7 @@ pub struct ProcessStats {
     pub name: String,
     pub path: String,
     pub icon_b64: String,
+    pub category: ProcessCategory,
     pub upload_rate: f64,   // bytes/sec
     pub download_rate: f64, // bytes/sec
     pub total_upload: u64,

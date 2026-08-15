@@ -1,11 +1,16 @@
 export type { UnlistenFn } from '@tauri-apps/api/event'
 
 
+/** 进程类型分类 */
+export type ProcessCategory = 'userApp' | 'windowsService' | 'kernel'
+
 /** 单个进程的网络统计快照（事件 `speed:update` / 命令 `get_process_list`）。 */
 export interface ProcessStats {
   pid: number
   name: string
   path: string
+  /** 进程分类：用户应用 / Windows 系统服务 / 内核核心 */
+  category: ProcessCategory
   /** Base64 编码的进程图标（可能为空字符串） */
   iconB64: string
   /** bytes/sec */

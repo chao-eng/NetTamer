@@ -147,6 +147,7 @@ impl Aggregator {
                 name: info.name,
                 path: info.path,
                 icon_b64: info.icon_b64,
+                category: info.category,
                 upload_rate: acc.last_upload_rate,
                 download_rate: acc.last_download_rate,
                 total_upload: acc.total_upload,
