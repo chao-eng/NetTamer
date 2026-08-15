@@ -91,6 +91,9 @@ pub fn update_speed(app: &AppHandle, upload_rate: f64, download_rate: f64, enabl
                 }
             }
         } else {
+            #[cfg(target_os = "windows")]
+            hide_taskbar_widget_window(&widget);
+
             let _ = widget.hide();
         }
     }
@@ -121,6 +124,31 @@ pub fn pin_taskbar_widget_window(widget: &tauri::WebviewWindow, x: i32, y: i32, 
                 w as i32,
                 h as i32,
                 SWP_NOACTIVATE | SWP_SHOWWINDOW,
+            );
+        }
+    }
+}
+
+/// Instantly hide taskbar widget via native Win32 API.
+#[cfg(target_os = "windows")]
+pub fn hide_taskbar_widget_window(widget: &tauri::WebviewWindow) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        SetWindowPos, ShowWindow, SWP_HIDEWINDOW, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+        SWP_NOZORDER, SW_HIDE,
+    };
+
+    if let Ok(hwnd) = widget.hwnd() {
+        let hwnd_raw = hwnd.0 as windows_sys::Win32::Foundation::HWND;
+        unsafe {
+            ShowWindow(hwnd_raw, SW_HIDE);
+            SetWindowPos(
+                hwnd_raw,
+                0,
+                0,
+                0,
+                0,
+                0,
+                SWP_HIDEWINDOW | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
             );
         }
     }

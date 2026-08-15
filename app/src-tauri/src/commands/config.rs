@@ -12,8 +12,15 @@ pub fn get_config(state: State<'_, AppState>, key: String) -> Result<Option<Stri
 }
 
 #[tauri::command]
-pub fn set_config(state: State<'_, AppState>, key: String, value: String) -> Result<(), String> {
-    state.config.set(&key, &value).map_err(|e| e.to_string())
+pub fn set_config(app: tauri::AppHandle, state: State<'_, AppState>, key: String, value: String) -> Result<(), String> {
+    state.config.set(&key, &value).map_err(|e| e.to_string())?;
+
+    if key == "taskbar_speed" {
+        let enabled = value == "true";
+        crate::tray::update_speed(&app, 0.0, 0.0, enabled);
+    }
+
+    Ok(())
 }
 
 #[tauri::command]
