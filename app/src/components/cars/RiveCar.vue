@@ -710,10 +710,11 @@ const FALLBACK_CARS = [
       </div>
     </div>
 
-    <!-- Realistic Ground Shadow -->
+    <!-- Realistic Ground Shadow (Tightly grounded directly under tires) -->
     <div
-      class="car-ground-shadow absolute -bottom-1 left-1/2 h-2.5 w-[75%] -translate-x-1/2 rounded-full pointer-events-none"
+      class="car-ground-shadow absolute left-1/2 w-[72%] -translate-x-1/2 rounded-full pointer-events-none"
       :class="speedMbps > 0 ? 'shadow-bob' : ''"
+      :style="{ bottom: '21px', height: '3.5px' }"
     ></div>
   </div>
 </template>
@@ -770,6 +771,11 @@ const FALLBACK_CARS = [
   animation: carDriveBob 0.55s ease-in-out infinite;
 }
 
+.rive-car-container:hover .suspension-bobbing,
+.rive-car-container:hover .shadow-bob {
+  animation-play-state: paused;
+}
+
 @keyframes carIdle {
   0%, 100% {
     transform: translateY(0px);
@@ -788,10 +794,10 @@ const FALLBACK_CARS = [
   }
 }
 
-/* Ground Shadow */
+/* Ground Shadow (Directly under tires) */
 .car-ground-shadow {
-  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0.65) 0%, rgba(0, 0, 0, 0.25) 50%, rgba(0, 0, 0, 0) 75%);
-  filter: blur(1.5px);
+  background: radial-gradient(ellipse at center, rgba(15, 23, 42, 0.75) 0%, rgba(30, 41, 59, 0.35) 55%, rgba(0, 0, 0, 0) 80%);
+  filter: blur(1.2px);
   pointer-events: none;
 }
 
@@ -802,11 +808,11 @@ const FALLBACK_CARS = [
 @keyframes shadowPulse {
   0%, 100% {
     transform: translateX(-50%) scale(1);
-    opacity: 0.85;
+    opacity: 0.9;
   }
   50% {
     transform: translateX(-50%) scale(0.97, 0.95);
-    opacity: 0.78;
+    opacity: 0.8;
   }
 }
 </style>

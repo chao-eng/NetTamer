@@ -30,8 +30,8 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="flex h-screen w-screen overflow-hidden bg-background text-foreground">
-    <AppSidebar />
-    <main class="flex-1 overflow-auto scrollbar-thin p-6">
+    <AppSidebar v-show="!settings.isImmersiveWindow" />
+    <main :class="['flex-1 overflow-auto scrollbar-thin', settings.isImmersiveWindow ? 'p-0 h-full w-full' : 'p-6']">
       <router-view />
     </main>
     <Toaster />

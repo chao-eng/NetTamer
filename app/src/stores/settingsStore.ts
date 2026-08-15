@@ -72,6 +72,16 @@ export const useSettingsStore = defineStore('settings', () => {
     await set(CONFIG_KEYS.minimizeToTray, String(!cur))
   }
 
+  const isImmersiveWindow = ref(false)
+
+  function toggleImmersiveWindow(val?: boolean) {
+    if (typeof val === 'boolean') {
+      isImmersiveWindow.value = val
+    } else {
+      isImmersiveWindow.value = !isImmersiveWindow.value
+    }
+  }
+
   return {
     config,
     load,
@@ -80,5 +90,7 @@ export const useSettingsStore = defineStore('settings', () => {
     toggleTheme,
     toggleAutoStart,
     toggleMinimizeToTray,
+    isImmersiveWindow,
+    toggleImmersiveWindow,
   }
 })

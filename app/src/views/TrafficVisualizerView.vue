@@ -2,15 +2,19 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import type { UnlistenFn } from '@/types'
 import { useProcessStore } from '@/stores/processStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import RiveCar from '@/components/cars/RiveCar.vue'
 import {
   ArrowUpRight,
   ArrowDownRight,
   Activity,
   RotateCcw,
+  Maximize2,
+  Minimize2,
 } from 'lucide-vue-next'
 
 const processStore = useProcessStore()
+const settings = useSettingsStore()
 
 function bytesToMBps(bytesPerSec: number): number {
   return bytesPerSec / (1024 * 1024)
@@ -254,7 +258,14 @@ const activeCarsCount = computed(() => {
 let syncTimer: number | null = null
 let unlisten: UnlistenFn[] = []
 
+function handleKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && settings.isImmersiveWindow) {
+    settings.toggleImmersiveWindow(false)
+  }
+}
+
 onMounted(async () => {
+  window.addEventListener('keydown', handleKeydown)
   await processStore.fetchList()
   unlisten = await processStore.bindEvents()
   if (!processStore.isMonitoring) {
@@ -265,6 +276,8 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  window.removeEventListener('keydown', handleKeydown)
+  settings.toggleImmersiveWindow(false)
   if (syncTimer) {
     clearInterval(syncTimer)
     syncTimer = null
@@ -275,9 +288,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="traffic-visualizer flex h-full flex-col overflow-hidden bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-    <!-- Top HUD Navigation Bar -->
-    <header class="z-30 flex shrink-0 items-center justify-end border-b border-slate-200/80 bg-white/90 px-6 py-3 backdrop-blur-md dark:border-slate-800/80 dark:bg-slate-900/90">
+  <div class="traffic-visualizer flex h-full w-full flex-col overflow-hidden bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+    <!-- Top HUD Navigation Bar (Hidden in Immersive Window mode) -->
+    <header
+      v-if="!settings.isImmersiveWindow"
+      class="z-30 flex shrink-0 items-center justify-end border-b border-slate-200/80 bg-white/90 px-6 py-3 backdrop-blur-md dark:border-slate-800/80 dark:bg-slate-900/90"
+    >
       <!-- Live Bandwidth & Control Tools -->
       <div class="flex items-center gap-4">
         <!-- Bandwidth Overview HUD (Strictly Real-time) -->
@@ -298,20 +314,27 @@ onBeforeUnmount(() => {
 
     <!-- Main Highway Stage (Static Stage + Pure Active Process Cars) -->
     <div class="highway-stage relative flex-1 select-none overflow-hidden">
+      <!-- Floating Exit Immersive Button (appears in immersive window mode) -->
+      <button
+        v-if="settings.isImmersiveWindow"
+        @click="settings.toggleImmersiveWindow(false)"
+        class="absolute right-4 bottom-4 z-40 flex items-center gap-1.5 rounded-lg border border-slate-300/80 bg-white/90 px-3 py-1.5 text-xs font-medium text-slate-700 backdrop-blur-md shadow-lg transition hover:bg-white dark:border-slate-700/80 dark:bg-slate-900/90 dark:text-slate-200 dark:hover:bg-slate-900"
+      >
+        <Minimize2 class="h-3.5 w-3.5 text-cyan-600 dark:text-cyan-400" />
+        <span>退出铺满 (Esc)</span>
+      </button>
+
       <!-- 1. [Sky & Celestial Body & Stars] -->
       <div class="sky-backdrop absolute inset-0 z-0 pointer-events-none">
         <div class="sky-gradient absolute inset-0"></div>
 
-        <!-- Sun (light mode only) -->
-        <div class="sun-box absolute right-14 top-6 flex items-center opacity-90 dark:hidden">
-          <div class="sun-glow relative h-14 w-14 rounded-full bg-amber-300 shadow-[0_0_45px_rgba(252,211,77,0.5)]">
-            <div class="sun-ray absolute -top-1 left-1/2 h-3 w-1 -translate-x-1/2 rounded-full bg-amber-400"></div>
-            <div class="sun-ray absolute top-1/2 -right-1 h-1 w-3 -translate-y-1/2 rounded-full bg-amber-400"></div>
-            <div class="sun-ray absolute -bottom-1 left-1/2 h-3 w-1 -translate-x-1/2 rounded-full bg-amber-400"></div>
-            <div class="sun-ray absolute top-1/2 -left-1 h-1 w-3 -translate-y-1/2 rounded-full bg-amber-400"></div>
-          </div>
+        <!-- Glowing Daylight Sun (light mode only) -->
+        <div class="sun-box absolute right-16 top-6 flex items-center justify-center pointer-events-none dark:hidden">
+          <div class="sun-outer-halo absolute h-28 w-28 rounded-full bg-amber-300/25 blur-2xl"></div>
+          <div class="sun-inner-halo absolute h-18 w-18 rounded-full bg-amber-400/35 blur-lg"></div>
+          <div class="sun-core relative h-12 w-12 rounded-full bg-gradient-to-tr from-amber-400 via-amber-300 to-yellow-100 shadow-[0_0_35px_rgba(251,191,36,0.65)]"></div>
         </div>
-        <div class="moon-box absolute right-14 top-6 hidden items-center opacity-90 dark:flex">
+        <div class="moon-box absolute right-14 top-6 hidden items-center opacity-90 dark:flex pointer-events-none">
           <div class="moon-glow relative h-14 w-14 rounded-full bg-amber-100 shadow-[0_0_45px_rgba(254,240,138,0.4)]">
             <div class="moon-crater absolute left-2 top-3 h-3 w-3 rounded-full bg-amber-200/40"></div>
             <div class="moon-crater absolute right-3 bottom-2 h-2 w-2 rounded-full bg-amber-200/40"></div>
@@ -328,26 +351,14 @@ onBeforeUnmount(() => {
           <span class="star s-6"></span>
           <span class="star s-7"></span>
         </div>
-
-        <!-- Static Distant Cloud Silhouettes -->
-        <div class="clouds-backdrop absolute inset-x-0 top-3 h-16 opacity-30 dark:opacity-30">
-          <div class="cloud-shape c1"></div>
-          <div class="cloud-shape c2"></div>
-          <div class="cloud-shape c3"></div>
-        </div>
-      </div>
-
-      <!-- 2. [Static Background City Skyline Silhouette] -->
-      <div class="city-skyline absolute inset-x-0 bottom-24 z-1 pointer-events-none">
-        <div class="skyline-buildings"></div>
       </div>
 
       <!-- Empty Track Peaceful Hint (When 0 active cars on the whole highway) -->
       <div
         v-if="activeCarsCount === 0"
-        class="absolute left-1/2 top-1/3 z-25 -translate-x-1/2 -translate-y-1/2 flex items-center gap-2 rounded-full border border-slate-300/80 bg-white/80 px-4 py-1.5 text-xs text-slate-600 backdrop-blur-md shadow-xl dark:border-slate-700/80 dark:bg-slate-900/80 dark:text-slate-300"
+        class="absolute left-1/2 top-1/3 z-25 -translate-x-1/2 -translate-y-1/2 flex items-center gap-2 rounded-full border border-slate-300/80 bg-white/90 px-4 py-1.5 text-xs text-slate-700 backdrop-blur-md shadow-xl dark:border-slate-700/80 dark:bg-slate-900/80 dark:text-slate-300"
       >
-        <span class="h-2 w-2 rounded-full bg-slate-400 animate-pulse dark:bg-slate-500"></span>
+        <span class="h-2 w-2 rounded-full bg-cyan-500 animate-pulse dark:bg-slate-500"></span>
         <span>当前无活跃网络流量进程 · 公路通畅待机中</span>
       </div>
 
@@ -388,7 +399,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div class="static-road-surface relative h-4 w-full bg-slate-300/95 border-t-2 border-amber-500/50 shadow-md dark:bg-slate-800/95">
+          <div class="static-road-surface relative h-4 w-full border-t-2 border-amber-500/80 shadow-md" style="background-color: var(--road-asphalt);">
             <div class="static-road-dashes"></div>
           </div>
         </div>
@@ -424,29 +435,20 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div class="static-road-surface relative h-4 w-full bg-slate-300/95 border-t border-amber-500/40 dark:bg-slate-800/95">
+          <div class="static-road-surface relative h-4 w-full border-t border-amber-500/60 shadow-sm" style="background-color: var(--road-asphalt);">
             <div class="static-road-dashes"></div>
           </div>
         </div>
 
         <!-- Central Green Isolation Belt & Crash Barrier -->
-        <div class="central-barrier-strip relative z-15 flex h-7 w-full items-center justify-between bg-gradient-to-r from-emerald-100 via-teal-100 to-emerald-100 px-6 border-y-2 border-emerald-500/50 shadow-[0_0_15px_rgba(16,185,129,0.15)] dark:from-emerald-950 dark:via-teal-950 dark:to-emerald-950 dark:shadow-[0_0_15px_rgba(16,185,129,0.35)]">
-          <div class="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+        <div class="central-barrier-strip relative z-15 flex h-7 w-full items-center justify-between bg-gradient-to-r from-emerald-100/90 via-teal-100/90 to-emerald-100/90 px-6 border-y-2 border-emerald-600/40 shadow-[0_0_12px_rgba(16,185,129,0.18)] dark:from-emerald-950 dark:via-teal-950 dark:to-emerald-950 dark:border-emerald-500/50 dark:shadow-[0_0_15px_rgba(16,185,129,0.35)]">
+          <div class="flex items-center gap-2 text-xs font-bold tracking-wide text-emerald-700 dark:text-emerald-400">
             <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse dark:bg-emerald-400"></span>
-            <span>UPLOAD LANE</span>
+            <span>上行流量 ←</span>
           </div>
 
-          <div class="flex items-center gap-10 opacity-80">
-            <span class="h-3 w-2 rounded-sm bg-amber-400 shadow-[0_0_8px_#f59e0b]"></span>
-            <span class="h-3 w-2 rounded-sm bg-emerald-400 shadow-[0_0_8px_#10b981]"></span>
-            <span class="h-3 w-2 rounded-sm bg-amber-400 shadow-[0_0_8px_#f59e0b]"></span>
-            <span class="h-3 w-2 rounded-sm bg-emerald-400 shadow-[0_0_8px_#10b981]"></span>
-            <span class="h-3 w-2 rounded-sm bg-amber-400 shadow-[0_0_8px_#f59e0b]"></span>
-            <span class="h-3 w-2 rounded-sm bg-emerald-400 shadow-[0_0_8px_#10b981]"></span>
-          </div>
-
-          <div class="flex items-center gap-2 text-[10px] font-bold uppercase tracking-wider text-cyan-600 dark:text-cyan-400">
-            <span>DOWNLOAD LANE</span>
+          <div class="flex items-center gap-2 text-xs font-bold tracking-wide text-cyan-700 dark:text-cyan-400">
+            <span>下行流量 →</span>
             <span class="h-2 w-2 rounded-full bg-cyan-500 animate-pulse dark:bg-cyan-400"></span>
           </div>
         </div>
@@ -484,7 +486,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div class="static-road-surface relative h-4 w-full bg-slate-300/95 border-t-2 border-cyan-500/50 dark:bg-slate-800/95">
+          <div class="static-road-surface relative h-4 w-full border-t-2 border-cyan-500/80 shadow-md" style="background-color: var(--road-asphalt);">
             <div class="static-road-dashes"></div>
           </div>
         </div>
@@ -520,38 +522,49 @@ onBeforeUnmount(() => {
             </div>
           </div>
 
-          <div class="static-road-surface relative h-4 w-full bg-slate-300/95 border-t border-cyan-500/40 dark:bg-slate-800/95">
+          <div class="static-road-surface relative h-4 w-full border-t border-cyan-500/60 shadow-sm" style="background-color: var(--road-asphalt);">
             <div class="static-road-dashes"></div>
           </div>
         </div>
 
         <!-- 4. [Clean Solid Subgrade Base] -->
-        <div class="subgrade-base relative h-6 w-full border-t-2 border-slate-200 bg-slate-100 shadow-inner dark:border-slate-800 dark:bg-slate-950"></div>
+        <div class="subgrade-base relative h-7 w-full border-t-2 border-slate-300/80 bg-gradient-to-b from-slate-200 to-slate-100 shadow-inner dark:border-slate-800 dark:from-slate-900 dark:to-slate-950"></div>
       </div>
     </div>
 
-    <!-- Bottom Traffic Control Panel -->
-    <footer class="z-30 border-t border-slate-200 bg-white/95 px-6 py-2.5 backdrop-blur-md dark:border-slate-800 dark:bg-slate-900/95">
+    <!-- Bottom Traffic Control Panel (Hidden in Immersive Window mode) -->
+    <footer
+      v-if="!settings.isImmersiveWindow"
+      class="z-30 border-t border-slate-200 bg-white/95 px-6 py-2.5 backdrop-blur-md dark:border-slate-800 dark:bg-slate-900/95"
+    >
       <div class="flex items-center justify-between gap-4">
-        <div class="flex items-center gap-4 text-xs font-semibold text-slate-700 dark:text-slate-300">
-          <div class="flex items-center gap-2">
-            <Activity class="h-4 w-4 text-cyan-600 dark:text-cyan-400" />
-            <span>实际运行状态：</span>
-          </div>
-
-          <span class="text-slate-500 dark:text-slate-400">
+        <div class="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400">
+          <Activity class="h-3.5 w-3.5 text-cyan-600 dark:text-cyan-400" />
+          <span>
             当前活跃进程车辆: <span class="font-mono font-bold text-cyan-600 dark:text-cyan-300">{{ activeCarsCount }}</span> 辆
           </span>
         </div>
 
-        <!-- Refresh / Reset Button -->
-        <button
-          @click="processStore.fetchList(); syncAllLanes();"
-          class="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200 transition dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-        >
-          <RotateCcw class="h-3.5 w-3.5" />
-          <span>刷新进程</span>
-        </button>
+        <!-- Control Tools -->
+        <div class="flex items-center gap-2">
+          <!-- Full Window View Toggle Button -->
+          <button
+            @click="settings.toggleImmersiveWindow(true)"
+            class="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200 transition dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+          >
+            <Maximize2 class="h-3.5 w-3.5 text-cyan-600 dark:text-cyan-400" />
+            <span>铺满窗口</span>
+          </button>
+
+          <!-- Refresh / Reset Button -->
+          <button
+            @click="processStore.fetchList(); syncAllLanes();"
+            class="flex items-center gap-1.5 rounded-lg border border-slate-300 bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200 transition dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+          >
+            <RotateCcw class="h-3.5 w-3.5" />
+            <span>刷新进程</span>
+          </button>
+        </div>
       </div>
     </footer>
   </div>
@@ -560,37 +573,27 @@ onBeforeUnmount(() => {
 <!-- Non-scoped: defines CSS variables for light/dark theme -->
 <style>
 .traffic-visualizer {
-  --sky-c1: #dbeafe;
-  --sky-c2: #bfdbfe;
-  --sky-c3: #93c5fd;
-  --sky-c4: #e0f2fe;
-  --cloud-bg: rgba(255, 255, 255, 0.7);
-  --cloud-opacity: 0.7;
-  --skyline-grad: linear-gradient(180deg, transparent 0%, rgba(148, 163, 184, 0.25) 100%);
-  --skyline-c1: rgba(148, 163, 184, 0.2);
-  --skyline-c2: rgba(148, 163, 184, 0.35);
-  --skyline-c3: rgba(148, 163, 184, 0.25);
-  --road-dash: rgba(100, 116, 139, 0.5);
-  --guardrail-bar: #cbd5e1;
-  --guardrail-border: #94a3b8;
-  --lamp-pole: #94a3b8;
-  --lamp-head: #e2e8f0;
-  --lamp-glow-bg: radial-gradient(ellipse at 50% 0%, rgba(254, 240, 138, 0.15) 0%, rgba(254, 240, 138, 0) 75%);
-}
-.dark .traffic-visualizer {
-  --sky-c1: #070a17;
-  --sky-c2: #0f152d;
-  --sky-c3: #181d3f;
-  --sky-c4: #0d1222;
-  --cloud-bg: rgba(255, 255, 255, 0.05);
-  --cloud-opacity: 0.3;
-  --skyline-grad: linear-gradient(180deg, transparent 0%, rgba(15, 23, 42, 0.75) 100%);
-  --skyline-c1: rgba(20, 28, 55, 0.5);
-  --skyline-c2: rgba(30, 41, 75, 0.7);
-  --skyline-c3: rgba(25, 34, 62, 0.6);
-  --road-dash: rgba(255, 255, 255, 0.6);
+  --sky-c1: #cde8fe;
+  --sky-c2: #e0f2fe;
+  --sky-c3: #eef2ff;
+  --sky-c4: #f8fafc;
+  --road-asphalt: #334155;
+  --road-dash: rgba(255, 255, 255, 0.75);
   --guardrail-bar: #94a3b8;
   --guardrail-border: #64748b;
+  --lamp-pole: #64748b;
+  --lamp-head: #1e293b;
+  --lamp-glow-bg: radial-gradient(ellipse at 50% 0%, rgba(254, 240, 138, 0.3) 0%, rgba(254, 240, 138, 0) 75%);
+}
+.dark .traffic-visualizer {
+  --sky-c1: #060913;
+  --sky-c2: #0b1124;
+  --sky-c3: #111836;
+  --sky-c4: #0a0f1d;
+  --road-asphalt: #1e293b;
+  --road-dash: rgba(255, 255, 255, 0.65);
+  --guardrail-bar: #64748b;
+  --guardrail-border: #475569;
   --lamp-pole: #cbd5e1;
   --lamp-head: #f8fafc;
   --lamp-glow-bg: radial-gradient(ellipse at 50% 0%, rgba(254, 240, 138, 0.25) 0%, rgba(254, 240, 138, 0) 75%);
@@ -626,50 +629,20 @@ onBeforeUnmount(() => {
   100% { opacity: 1; transform: scale(1.3); }
 }
 
-/* Distant Cloud Silhouettes */
-.cloud-shape {
-  position: absolute;
-  background: var(--cloud-bg);
-  border-radius: 50px;
-}
-.c1 { width: 140px; height: 28px; left: 10%; top: 10px; }
-.c2 { width: 220px; height: 35px; left: 45%; top: 20px; }
-.c3 { width: 160px; height: 25px; right: 12%; top: 15px; }
-
-/* Static City Skyline Silhouette */
-.skyline-buildings {
-  height: 120px;
-  background:
-    var(--skyline-grad),
-    repeating-linear-gradient(
-      90deg,
-      var(--skyline-c1) 0px,
-      var(--skyline-c1) 24px,
-      transparent 24px,
-      transparent 32px,
-      var(--skyline-c2) 32px,
-      var(--skyline-c2) 60px,
-      transparent 60px,
-      transparent 70px,
-      var(--skyline-c3) 70px,
-      var(--skyline-c3) 110px,
-      transparent 110px,
-      transparent 125px
-    );
-  mask-image: linear-gradient(to top, black 50%, transparent 100%);
-  -webkit-mask-image: linear-gradient(to top, black 50%, transparent 100%);
-}
-
-/* Static Road Track Dashes */
+/* Static Road Track Dashes (Thin elegant centerline) */
 .static-road-dashes {
   position: absolute;
-  inset: 0;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  transform: translateY(-50%);
   background-image: repeating-linear-gradient(
     90deg,
     var(--road-dash) 0px,
-    var(--road-dash) 24px,
-    transparent 24px,
-    transparent 54px
+    var(--road-dash) 22px,
+    transparent 22px,
+    transparent 44px
   );
 }
 
@@ -683,9 +656,9 @@ onBeforeUnmount(() => {
   background-image: repeating-linear-gradient(
     90deg,
     var(--guardrail-bar) 0px,
-    var(--guardrail-bar) 3px,
-    transparent 3px,
-    transparent 45px
+    var(--guardrail-bar) 2.5px,
+    transparent 2.5px,
+    transparent 48px
   );
   border-top: 1.5px solid var(--guardrail-border);
 }
@@ -731,6 +704,11 @@ onBeforeUnmount(() => {
 .moving-car-runner {
   will-change: left;
   pointer-events: auto;
+}
+
+/* Pause vehicle movement when mouse hovers over it */
+.moving-car-runner:hover {
+  animation-play-state: paused;
 }
 
 /* Download: Single Pass from Left (-190px) to Right (100% + 60px) */
