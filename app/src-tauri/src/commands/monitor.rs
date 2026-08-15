@@ -1,7 +1,6 @@
 //! Monitoring commands: start/stop ETW+WinDivert, list processes, set interval.
 
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 
 use tauri::State;
 
@@ -25,23 +24,11 @@ pub fn start_monitoring(state: State<'_, AppState>) -> Result<(), String> {
         }
     });
 
-    // 2) WinDivert capture engine (best-effort; needs admin + driver present).
-    match crate::windivert::WinDivertEngine::open(
-        "tcp or udp",
-        state.throttle.clone(),
-        state.port_map.clone(),
-        state.resolver.clone(),
-    ) {
-        Ok(engine) => {
-            let arc = Arc::new(engine);
-            arc.run();
-            *state.windivert.lock().unwrap() = Some(arc);
-        }
-        Err(e) => log::warn!("WinDivert engine not started: {e}"),
-    }
-
     *state.etw.lock().unwrap() = Some(session);
     state.set_running(true);
+
+    // 2) Sync WinDivert state (only started if there are active throttle policies)
+    state.sync_windivert_state();
     Ok(())
 }
 
@@ -52,7 +39,7 @@ pub fn stop_monitoring(state: State<'_, AppState>) -> Result<(), String> {
         session.stop().map_err(|e| e.to_string())?;
     }
     if let Some(engine) = state.windivert.lock().unwrap().take() {
-        engine.stop().map_err(|e| e.to_string())?;
+        engine.stop();
     }
     state.set_running(false);
     Ok(())

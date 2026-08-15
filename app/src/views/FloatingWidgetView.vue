@@ -44,22 +44,14 @@ function updateRates(up: number, down: number) {
 }
 
 const unlisteners: UnlistenFn[] = []
-let pollTimer: any = null
 
-async function pollStats() {
+async function initStats() {
   try {
     const s = await invokeSafe<any>('get_system_stats', undefined, undefined)
     if (s && (s.totalUploadRate !== undefined || s.total_upload_rate !== undefined)) {
       const up = Number(s.totalUploadRate ?? s.total_upload_rate ?? 0)
       const down = Number(s.totalDownloadRate ?? s.total_download_rate ?? 0)
       updateRates(up, down)
-    } else {
-      const list = await invokeSafe<any[]>('get_process_list', undefined, [])
-      if (Array.isArray(list) && list.length > 0) {
-        const up = list.reduce((sum, p) => sum + Number(p.uploadRate ?? p.upload_rate ?? 0), 0)
-        const down = list.reduce((sum, p) => sum + Number(p.downloadRate ?? p.download_rate ?? 0), 0)
-        updateRates(up, down)
-      }
     }
   } catch {}
 }
@@ -123,12 +115,10 @@ onMounted(async () => {
     }),
   )
 
-  // 3. Start ETW monitor & stats polling
-  await invokeSafe('start_monitoring')
-  pollStats()
-  pollTimer = setInterval(pollStats, 1000)
+  // 3. Initial stats fetch
+  initStats()
 
-  // 4. Listen to system:stats and speed:update
+  // 4. Listen to system:stats event
   unlisteners.push(
     await listenSafe<any>('system:stats', (s) => {
       if (s) {
@@ -138,20 +128,9 @@ onMounted(async () => {
       }
     }),
   )
-
-  unlisteners.push(
-    await listenSafe<any[]>('speed:update', (list) => {
-      if (Array.isArray(list)) {
-        const up = list.reduce((sum, p) => sum + Number(p.uploadRate ?? p.upload_rate ?? 0), 0)
-        const down = list.reduce((sum, p) => sum + Number(p.downloadRate ?? p.download_rate ?? 0), 0)
-        updateRates(up, down)
-      }
-    }),
-  )
 })
 
 onBeforeUnmount(() => {
-  if (pollTimer) clearInterval(pollTimer)
   unlistenAll(unlisteners)
 })
 </script>

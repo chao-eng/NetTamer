@@ -61,6 +61,47 @@ impl AppState {
         self.running.store(v, Ordering::Relaxed);
     }
 
+    /// Dynamically syncs the WinDivert capture engine status (Plan A - Process Specific Port Filtering):
+    /// Only runs if monitoring is active AND there is at least one active rate-limiting policy.
+    /// Dedicated to target processes; completely stops WinDivert if no active policies exist.
+    pub fn sync_windivert_state(&self) {
+        if !self.is_running() {
+            return;
+        }
+
+        let mgr = throttle::Manager::new(self.store.clone(), self.throttle.clone());
+        let active_targets: Vec<String> = mgr
+            .list()
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|p| p.active && p.rate_limit_bps > 0)
+            .map(|p| p.process_name)
+            .collect();
+
+        let mut guard = self.windivert.lock().unwrap();
+        if !active_targets.is_empty() {
+            if let Some(engine) = guard.as_ref() {
+                engine.update_targets(active_targets);
+            } else {
+                match windivert::WinDivertEngine::start(
+                    active_targets,
+                    self.throttle.clone(),
+                    self.port_map.clone(),
+                    self.resolver.clone(),
+                ) {
+                    Ok(engine) => {
+                        *guard = Some(engine);
+                        log::info!("WinDivert capture engine started on demand for targeted processes (Plan A)");
+                    }
+                    Err(e) => log::warn!("WinDivert engine failed to start: {e}"),
+                }
+            }
+        } else if let Some(engine) = guard.take() {
+            engine.stop();
+            log::info!("WinDivert capture engine stopped (no active rate limit policies)");
+        }
+    }
+
     #[allow(dead_code)]
     pub fn refresh_ms(&self) -> u64 {
         self.refresh_interval.load(Ordering::Relaxed).max(100)

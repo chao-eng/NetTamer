@@ -189,6 +189,33 @@ impl PortPidMap {
         *self.port_map.write().unwrap() = new_port_map;
         *self.last_refresh.write().unwrap() = Instant::now();
     }
+
+    /// Query all active ports currently held by any process matching the given names.
+    pub fn get_ports_for_process_names(
+        &self,
+        names: &[String],
+        resolver: &crate::process::Resolver,
+    ) -> Vec<u16> {
+        self.refresh();
+        let port_map = self.port_map.read().unwrap();
+        let mut matching_ports = Vec::new();
+
+        let lower_names: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
+
+        for (&port, &pid) in port_map.iter() {
+            let proc_name = resolver.resolve(pid).name.to_lowercase();
+            if lower_names.iter().any(|target| {
+                *target == proc_name
+                    || format!("{}.exe", target) == proc_name
+                    || *target == format!("{}.exe", proc_name)
+            }) {
+                matching_ports.push(port);
+            }
+        }
+        matching_ports.sort_unstable();
+        matching_ports.dedup();
+        matching_ports
+    }
 }
 
 impl Default for PortPidMap {

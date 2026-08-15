@@ -77,6 +77,10 @@ impl Aggregator {
 
     /// Ingest a single decoded ETW network event.
     pub fn ingest(&self, ev: NetworkEvent) {
+        if ev.pid == 0 || ev.pid == std::process::id() {
+            return;
+        }
+
         let mut procs = self.processes.write().unwrap();
         let acc = procs.entry(ev.pid).or_insert_with(|| ProcessAccumulator::new(ev.pid));
         match ev.direction {
@@ -100,6 +104,11 @@ impl Aggregator {
         let now = Instant::now();
         let mut out = Vec::with_capacity(procs.len());
 
+        let self_pid = std::process::id();
+        let self_exe_path = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.to_str().map(|s| s.to_lowercase()));
+
         for acc in procs.values_mut() {
             let elapsed = now.duration_since(acc.window_start).as_secs_f64().max(1e-6);
             let inst_up = acc.window_bytes_up as f64 / elapsed;
@@ -112,7 +121,27 @@ impl Aggregator {
             acc.window_bytes_down = 0;
             acc.window_start = now;
 
+            if acc.pid == 0 || acc.pid == self_pid {
+                continue;
+            }
+
             let info = self.resolver.resolve(acc.pid);
+            let lower_name = info.name.to_lowercase();
+            if lower_name == "system idle process"
+                || lower_name == "nettamer.exe"
+                || lower_name == "nettamer"
+                || lower_name == "msedgewebview2.exe"
+                || lower_name == "msedgewebview2"
+            {
+                continue;
+            }
+
+            if let Some(ref self_path) = self_exe_path {
+                if !info.path.is_empty() && info.path.to_lowercase() == *self_path {
+                    continue;
+                }
+            }
+
             out.push(ProcessStats {
                 pid: acc.pid,
                 name: info.name,
