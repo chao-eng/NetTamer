@@ -315,9 +315,15 @@ unsafe extern "system" fn win_event_hook_proc(
         return;
     }
 
+    let overlay_hwnd = *OVERLAY_HWND.lock().unwrap();
+    // Ignore events originating from our own overlay window
+    if overlay_hwnd != 0 && hwnd == overlay_hwnd {
+        return;
+    }
+
     // Evaluate against the current active foreground window
     let fg = GetForegroundWindow();
-    if fg == 0 {
+    if fg == 0 || (overlay_hwnd != 0 && fg == overlay_hwnd) {
         return;
     }
 
@@ -325,7 +331,6 @@ unsafe extern "system" fn win_event_hook_proc(
     let prev = IS_FULLSCREEN_ACTIVE.swap(is_fs, Ordering::Relaxed);
 
     if prev != is_fs {
-        let overlay_hwnd = *OVERLAY_HWND.lock().unwrap();
         if overlay_hwnd != 0 {
             if is_fs {
                 ShowWindow(overlay_hwnd, SW_HIDE);
@@ -656,6 +661,11 @@ fn get_taskbar_speed_geometry(widget_width: i32) -> Option<(i32, i32, u32, u32)>
 
 fn check_window_is_fullscreen(hwnd: usize) -> bool {
     if hwnd == 0 {
+        return false;
+    }
+
+    let overlay_hwnd = *OVERLAY_HWND.lock().unwrap();
+    if overlay_hwnd != 0 && hwnd == overlay_hwnd {
         return false;
     }
 
