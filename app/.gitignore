@@ -1,0 +1,42 @@
+# ---------- Rust / Cargo ----------
+# Compiled build artifacts (large, machine-specific).
+# No leading slash so it matches the nested src-tauri/target as well as app/target.
+target/
+# Rust backup files
+**/*.rs.bk
+# NOTE: Cargo.lock is intentionally NOT ignored for Tauri apps,
+# because it pins dependency versions for reproducible builds.
+
+# ---------- Node / npm ----------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+bun-debug.log*
+
+# ---------- Frontend build output ----------
+dist/
+dist-ssr/
+*.local
+
+# ---------- Tauri ----------
+# Uncomment if your setup generates src-tauri/gen/
+# src-tauri/gen/
+
+# ---------- Logs ----------
+logs/
+*.log
+
+# ---------- Editor & OS ----------
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+Thumbs.db
+.DS_Store
+Desktop.ini

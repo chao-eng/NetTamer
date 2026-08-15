@@ -1136,29 +1136,32 @@ NetTamer/
 │   └── bin/                         # WinDivert 驱动/二进制随包分发
 │       └── WinDivert.dll / WinDivert.sys
 │
-├── frontend/                        # Vue 3 前端项目
-│   ├── public/
-│   ├── src/
-│   │   ├── assets/
-│   │   ├── components/
-│   │   │   ├── ui/                  # shadcn-vue 组件
-│   │   │   ├── layout/
-│   │   │   ├── charts/
-│   │   │   └── common/
-│   │   ├── composables/             # 封装 @tauri-apps/api invoke/listen
-│   │   ├── lib/
-│   │   ├── router/
-│   │   ├── stores/
-│   │   ├── views/
-│   │   ├── App.vue
-│   │   ├── main.ts
-│   │   └── style.css
-│   ├── index.html
-│   ├── components.json              # shadcn-vue 配置
-│   ├── tailwind.config.js
-│   ├── tsconfig.json
-│   ├── vite.config.ts
-│   └── package.json
+├── package.json                     # 前端依赖与脚本 (dev/build/tauri)
+├── index.html                       # 前端入口
+├── vite.config.ts
+├── tailwind.config.js
+├── postcss.config.js
+├── tsconfig.json
+├── tsconfig.node.json
+├── components.json                  # shadcn-vue 配置
+├── public/                          # 静态资源 (favicon 等)
+├── src/                             # Vue 3 前端源码 (与 src-tauri 平级，官方布局)
+│   ├── lib/
+│   │   ├── ipc.ts                   # Tauri invoke/listen 安全封装
+│   │   └── utils.ts                 # cn() 等工具
+│   ├── types.ts                     # 前后端共享数据契约
+│   ├── components/
+│   │   ├── ui/                      # shadcn-vue 组件
+│   │   ├── layout/
+│   │   ├── charts/
+│   │   └── common/
+│   ├── composables/                 # 封装 Tauri 命令
+│   ├── router/
+│   ├── stores/                      # Pinia 状态
+│   ├── views/                       # 页面视图
+│   ├── App.vue
+│   ├── main.ts
+│   └── style.css
 │
 ├── doc/                             # 项目文档
 │   └── architecture.md              # 架构设计文档 (本文件)
@@ -1177,18 +1180,22 @@ NetTamer 的核心功能（ETW 和 WinDivert）均需要管理员权限：
 - **ETW**：实时内核会话需要 `SeSystemProfilePrivilege` / 管理员组
 - **WinDivert**：加载 `WinDivert.sys` 驱动需要管理员权限
 
-通过 Tauri 2.0 的 `tauri.conf.json` 配置 `runasadmin`（或内嵌 manifest 声明 `requireAdministrator`）：
+Tauri 2.0 已从 `tauri.conf.json` 中移除 `bundle.windows.requestedExecutionLevel` 字段，
+管理员权限改由编译期嵌入**应用清单 (manifest)** 实现。在 `src-tauri/build.rs` 中通过
+`tauri_build::WindowsAttributes::app_manifest()` 嵌入 `src-tauri/manifest.xml`
+（含 `requestedExecutionLevel level="requireAdministrator"`）：
 
-```json
-// src-tauri/tauri.conf.json (节选)
-{
-  "bundle": {
-    "windows": {
-      "requestedExecutionLevel": "requireAdministrator"
-    }
-  }
-}
+```rust
+// src-tauri/build.rs (Windows 分支)
+use tauri_build::WindowsAttributes;
+let windows = WindowsAttributes::new().app_manifest(include_str!("manifest.xml"));
+let attrs = tauri_build::Attributes::new().windows_attributes(windows);
+tauri_build::try_build(attrs).expect("failed to run tauri-build");
 ```
+
+> 注意：因 exe 内嵌了 `requireAdministrator` 清单，**必须以管理员身份**运行
+> `tauri dev` / `tauri build`（即从“管理员: 终端”启动），否则 Windows 会返回
+> `os error 740`（请求的操作需要提升）。
 
 ### 13.2 安全设计考量
 
