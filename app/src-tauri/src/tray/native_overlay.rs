@@ -1,11 +1,14 @@
 //! Dedicated Win32 Native Overlay Thread for Taskbar Speed Widget.
 //!
-//! Architecture:
-//! - Runs on an independent OS thread with its own Win32 message loop (`GetMessage` / `DispatchMessage`).
-//! - Tokio background runtime sends rate updates via thread-safe channel / PostMessage.
-//! - Uses `SetWinEventHook` (`EVENT_SYSTEM_FOREGROUND`) for zero-polling, event-driven fullscreen detection.
-//! - Uses Win32 Layered Window with ColorKey transparency (`LWA_COLORKEY`), click-through, and zero-activation.
-//! - Resource usage: < 2MB RAM, 0.00% CPU.
+//! Multi-mechanism Fullscreen Auto-Hide Architecture:
+//! - Priority 1: `EVENT_SYSTEM_FOREGROUND` (Hook) for instant detection of game launch / window focus change.
+//! - Priority 2: `EVENT_OBJECT_LOCATIONCHANGE` (Hook) for instant detection of web video / F11 fullscreen resizing.
+//! - Priority 3: 500ms Fallback Timer (`WM_TIMER`) to continuously verify foreground coverage and taskbar visibility.
+//!
+//! Rendering & Lifecycle:
+//! - Runs on an independent Win32 UI thread with message loop (`GetMessage` / `DispatchMessage`).
+//! - Uses Layered Window with ColorKey (`LWA_COLORKEY`) transparency and zero-activation.
+//! - Resource footprint: < 2MB RAM, 0.00% CPU.
 
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
@@ -78,9 +81,14 @@ const WS_EX_NOACTIVATE: u32 = 0x08000000;
 const CS_VREDRAW: u32 = 0x0001;
 const CS_HREDRAW: u32 = 0x0002;
 
+const WM_CREATE: u32 = 0x0001;
 const WM_PAINT: u32 = 0x000F;
+const WM_TIMER: u32 = 0x0113;
 const WM_DESTROY: u32 = 0x0002;
 const WM_USER_UPDATE: u32 = 0x0400 + 101;
+
+const IDT_FALLBACK_TIMER: usize = 1;
+const FALLBACK_INTERVAL_MS: u32 = 500;
 
 const SW_HIDE: i32 = 0;
 const SWP_SHOWWINDOW: u32 = 0x0040;
@@ -101,6 +109,7 @@ const BLACK_BRUSH: i32 = 4;
 const MONITOR_DEFAULTTONEAREST: u32 = 2;
 
 const EVENT_SYSTEM_FOREGROUND: u32 = 0x0003;
+const EVENT_OBJECT_LOCATIONCHANGE: u32 = 0x800B;
 const WINEVENT_OUTOFCONTEXT: u32 = 0x0000;
 
 #[link(name = "kernel32")]
@@ -142,6 +151,8 @@ extern "system" {
         uFlags: u32,
     ) -> i32;
     fn SetLayeredWindowAttributes(hWnd: usize, crKey: u32, bAlpha: u8, dwFlags: u32) -> i32;
+    fn SetTimer(hWnd: usize, nIDEvent: usize, uElapse: u32, lpTimerFunc: Option<unsafe extern "system" fn(usize, u32, usize, u32)>) -> usize;
+    fn KillTimer(hWnd: usize, uIDEvent: usize) -> i32;
     fn BeginPaint(hWnd: usize, lpPaint: *mut PAINTSTRUCT) -> usize;
     fn EndPaint(hWnd: usize, lpPaint: *const PAINTSTRUCT) -> i32;
     fn InvalidateRect(hWnd: usize, lpRect: *const RECT, bErase: i32) -> i32;
@@ -155,6 +166,7 @@ extern "system" {
     ) -> i32;
     fn FindWindowW(lpClassName: *const u16, lpWindowName: *const u16) -> usize;
     fn GetWindowRect(hWnd: usize, lpRect: *mut RECT) -> i32;
+    fn IsWindowVisible(hWnd: usize) -> i32;
     fn GetForegroundWindow() -> usize;
     fn GetDesktopWindow() -> usize;
     fn GetClassNameW(hWnd: usize, lpClassName: *mut u16, nMaxCount: i32) -> i32;
@@ -289,8 +301,8 @@ pub fn send_speed_update(upload_rate: f64, download_rate: f64, enabled: bool) {
     }
 }
 
-/// Event-driven foreground change hook (zero polling).
-unsafe extern "system" fn foreground_event_proc(
+/// Priority 1 & 2: Event-driven hook for Foreground Switch (Games) and Location/Size Change (Web Fullscreen).
+unsafe extern "system" fn win_event_hook_proc(
     _hook: usize,
     _event: u32,
     hwnd: usize,
@@ -303,7 +315,13 @@ unsafe extern "system" fn foreground_event_proc(
         return;
     }
 
-    let is_fs = check_window_is_fullscreen(hwnd);
+    // Evaluate against the current active foreground window
+    let fg = GetForegroundWindow();
+    if fg == 0 {
+        return;
+    }
+
+    let is_fs = check_window_is_fullscreen(fg);
     let prev = IS_FULLSCREEN_ACTIVE.swap(is_fs, Ordering::Relaxed);
 
     if prev != is_fs {
@@ -355,23 +373,37 @@ fn run_overlay_thread_loop(_rx: Receiver<SpeedMessage>) {
         // Configure ColorKey transparency: Black (0x000000) is 100% transparent
         SetLayeredWindowAttributes(hwnd, 0x00000000, 255, LWA_COLORKEY);
 
+        // Start Priority 3 Fallback Timer (500ms)
+        SetTimer(hwnd, IDT_FALLBACK_TIMER, FALLBACK_INTERVAL_MS, None);
+
         {
             let mut h_lock = OVERLAY_HWND.lock().unwrap();
             *h_lock = hwnd;
         }
 
-        // Initial foreground check
+        // Initial foreground state evaluation
         let fg = GetForegroundWindow();
         if fg != 0 {
             IS_FULLSCREEN_ACTIVE.store(check_window_is_fullscreen(fg), Ordering::Relaxed);
         }
 
-        // Register event-driven foreground hook (zero polling)
-        let hook = SetWinEventHook(
+        // Priority 1 Hook: EVENT_SYSTEM_FOREGROUND (0x0003) - Game / Process Focus changes
+        let hook_foreground = SetWinEventHook(
             EVENT_SYSTEM_FOREGROUND,
             EVENT_SYSTEM_FOREGROUND,
             0,
-            Some(foreground_event_proc),
+            Some(win_event_hook_proc),
+            0,
+            0,
+            WINEVENT_OUTOFCONTEXT,
+        );
+
+        // Priority 2 Hook: EVENT_OBJECT_LOCATIONCHANGE (0x800B) - Web Video / F11 Fullscreen resizing
+        let hook_location = SetWinEventHook(
+            EVENT_OBJECT_LOCATIONCHANGE,
+            EVENT_OBJECT_LOCATIONCHANGE,
+            0,
+            Some(win_event_hook_proc),
             0,
             0,
             WINEVENT_OUTOFCONTEXT,
@@ -384,9 +416,14 @@ fn run_overlay_thread_loop(_rx: Receiver<SpeedMessage>) {
             DispatchMessageW(&msg);
         }
 
-        if hook != 0 {
-            UnhookWinEvent(hook);
+        if hook_foreground != 0 {
+            UnhookWinEvent(hook_foreground);
         }
+        if hook_location != 0 {
+            UnhookWinEvent(hook_location);
+        }
+
+        KillTimer(hwnd, IDT_FALLBACK_TIMER);
 
         {
             let mut h_lock = OVERLAY_HWND.lock().unwrap();
@@ -402,6 +439,26 @@ unsafe extern "system" fn overlay_wnd_proc(
     lparam: isize,
 ) -> isize {
     match msg {
+        WM_CREATE => {
+            SetTimer(hwnd, IDT_FALLBACK_TIMER, FALLBACK_INTERVAL_MS, None);
+            0
+        }
+        WM_TIMER => {
+            if wparam == IDT_FALLBACK_TIMER {
+                // Priority 3: 500ms Fallback Check
+                let fg = GetForegroundWindow();
+                let is_fs = if fg != 0 { check_window_is_fullscreen(fg) } else { false };
+                let prev = IS_FULLSCREEN_ACTIVE.swap(is_fs, Ordering::Relaxed);
+
+                let data = *LATEST_DATA.lock().unwrap();
+                if !data.enabled || is_fs {
+                    ShowWindow(hwnd, SW_HIDE);
+                } else if prev != is_fs {
+                    PostMessageW(hwnd, WM_USER_UPDATE, 0, 0);
+                }
+            }
+            0
+        }
         WM_USER_UPDATE => {
             let data = *LATEST_DATA.lock().unwrap();
 
@@ -410,7 +467,7 @@ unsafe extern "system" fn overlay_wnd_proc(
                 return 0;
             }
 
-            // Check event-driven fullscreen state
+            // Check multi-mechanism fullscreen state
             if IS_FULLSCREEN_ACTIVE.load(Ordering::Relaxed) {
                 ShowWindow(hwnd, SW_HIDE);
                 return 0;
@@ -520,6 +577,7 @@ unsafe extern "system" fn overlay_wnd_proc(
             0
         }
         WM_DESTROY => {
+            KillTimer(hwnd, IDT_FALLBACK_TIMER);
             PostQuitMessage(0);
             0
         }
@@ -568,6 +626,11 @@ fn get_taskbar_speed_geometry(widget_width: i32) -> Option<(i32, i32, u32, u32)>
             return None;
         }
 
+        // Verify taskbar is visible
+        if IsWindowVisible(hwnd_tray) == 0 {
+            return None;
+        }
+
         let mut tray_rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
         GetWindowRect(hwnd_tray, &mut tray_rect);
 
@@ -605,6 +668,11 @@ fn check_window_is_fullscreen(hwnd: usize) -> bool {
 
         if hwnd == desktop || hwnd == shell_tray {
             return false;
+        }
+
+        // Check if taskbar is hidden
+        if shell_tray != 0 && IsWindowVisible(shell_tray) == 0 {
+            return true;
         }
 
         let mut class_buf = [0u16; 64];
