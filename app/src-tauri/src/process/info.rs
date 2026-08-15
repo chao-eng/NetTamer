@@ -188,12 +188,15 @@ impl Resolver {
             };
         }
         if pid == 4 {
+            let ntos_path = "C:\\Windows\\System32\\ntoskrnl.exe";
+            let icon_b64 = super::icon::get_process_icon_b64(ntos_path);
             return Info {
                 pid,
                 name: "Windows 系统网络 (System)".to_string(),
                 path: "[Windows Kernel]".to_string(),
                 category: ProcessCategory::Kernel,
-                ..Default::default()
+                icon_b64,
+                user: String::new(),
             };
         }
 
