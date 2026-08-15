@@ -30,7 +30,7 @@ function applyTheme(theme: string) {
 }
 
 // Immediately apply saved theme on module load to prevent titlebar flicker
-const initialTheme = (typeof localStorage !== 'undefined' && localStorage.getItem('app-theme')) || 'dark'
+const initialTheme = (typeof localStorage !== 'undefined' && localStorage.getItem('app-theme')) || 'light'
 applyTheme(initialTheme)
 
 export const useSettingsStore = defineStore('settings', () => {
@@ -53,7 +53,7 @@ export const useSettingsStore = defineStore('settings', () => {
       {},
     )
     config.value = { ...DEFAULT_CONFIG, ...(remote ?? {}) }
-    applyTheme(config.value[CONFIG_KEYS.theme] ?? 'dark')
+    applyTheme(config.value[CONFIG_KEYS.theme] ?? 'light')
   }
 
   async function set(key: string, value: string) {

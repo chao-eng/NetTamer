@@ -142,7 +142,7 @@ export type ConfigKey = (typeof CONFIG_KEYS)[keyof typeof CONFIG_KEYS]
 /** 默认配置，浏览器（非 Tauri）环境下作为回退值。 */
 export const DEFAULT_CONFIG: Record<string, string> = {
   [CONFIG_KEYS.refreshInterval]: '1000',
-  [CONFIG_KEYS.theme]: 'dark',
+  [CONFIG_KEYS.theme]: 'light',
   [CONFIG_KEYS.autoStart]: 'false',
   [CONFIG_KEYS.minimizeToTray]: 'true',
   [CONFIG_KEYS.alertSound]: 'true',

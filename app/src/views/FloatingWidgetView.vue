@@ -6,7 +6,7 @@ import { ArrowUp, ArrowDown } from 'lucide-vue-next'
 
 const uploadStr = ref('0.0 K/s')
 const downloadStr = ref('0.0 K/s')
-const isDark = ref(true)
+const isDark = ref(false)
 const opacity = ref(100)
 const isClickThrough = ref(false)
 
@@ -95,13 +95,13 @@ onMounted(async () => {
         await invokeSafe('set_floating_click_through', { enabled: true })
       }
     } else {
-      const savedTheme = localStorage.getItem('app-theme') || 'dark'
+      const savedTheme = localStorage.getItem('app-theme') || 'light'
       applyTheme(savedTheme)
       const savedOp = localStorage.getItem('floating_opacity')
       if (savedOp) opacity.value = Number(savedOp) || 100
     }
   } catch {
-    applyTheme('dark')
+    applyTheme('light')
   }
 
   // 2. Listen to theme & opacity & click-through sync events

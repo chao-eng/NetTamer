@@ -37,7 +37,7 @@ impl Config {
     fn defaults() -> Vec<(&'static str, &'static str)> {
         vec![
             ("refresh_interval_ms", "1000"),
-            ("theme", "dark"),
+            ("theme", "light"),
             ("auto_start", "false"),
             ("minimize_to_tray", "true"),
             ("alert_sound", "true"),
