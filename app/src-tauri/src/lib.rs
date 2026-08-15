@@ -64,6 +64,10 @@ pub fn run() {
                 resolver.clone(),
             ));
             let throttle = Arc::new(throttle::ThrottleTable::new());
+            let throttle_mgr = throttle::Manager::new(store.clone(), throttle.clone());
+            if let Err(e) = throttle_mgr.load() {
+                log::warn!("failed to load throttle policies on startup: {e}");
+            }
 
             // Alert engine owns one side of the alert event channel; a dedicated
             // thread forwards `AlertEvent`s to the frontend as `alert:triggered`.

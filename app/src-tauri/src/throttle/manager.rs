@@ -35,4 +35,15 @@ impl Manager {
     pub fn list(&self) -> Result<Vec<Policy>, Error> {
         self.db.list_policies()
     }
+
+    /// Load all active persisted policies from SQLite into the live table.
+    pub fn load(&self) -> Result<(), Error> {
+        let list = self.db.list_policies()?;
+        for p in list {
+            if p.active {
+                self.table.apply_policy(p);
+            }
+        }
+        Ok(())
+    }
 }
