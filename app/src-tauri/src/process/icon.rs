@@ -97,6 +97,7 @@ extern "system" {
 }
 
 const SHGFI_ICON: u32 = 0x000000100;
+const SHGFI_LARGEICON: u32 = 0x000000000;
 const SHGFI_SMALLICON: u32 = 0x000000001;
 const DIB_RGB_COLORS: u32 = 0;
 
@@ -131,15 +132,29 @@ fn extract_icon_as_bmp_base64(exe_path: &str) -> Option<String> {
         .collect();
 
     let mut shfi: SHFILEINFOW = unsafe { std::mem::zeroed() };
-    let res = unsafe {
+    // Request HD Large Icon (32x32 / 48x48) for crystal-clear High-DPI rendering
+    let mut res = unsafe {
         SHGetFileInfoW(
             wide_path.as_ptr(),
             0,
             &mut shfi,
             std::mem::size_of::<SHFILEINFOW>() as u32,
-            SHGFI_ICON | SHGFI_SMALLICON,
+            SHGFI_ICON | SHGFI_LARGEICON,
         )
     };
+
+    if res == 0 || shfi.h_icon == 0 {
+        // Fallback to small icon if large icon is unavailable
+        res = unsafe {
+            SHGetFileInfoW(
+                wide_path.as_ptr(),
+                0,
+                &mut shfi,
+                std::mem::size_of::<SHFILEINFOW>() as u32,
+                SHGFI_ICON | SHGFI_SMALLICON,
+            )
+        };
+    }
 
     if res == 0 || shfi.h_icon == 0 {
         return None;

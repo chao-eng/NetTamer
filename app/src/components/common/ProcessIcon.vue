@@ -16,8 +16,19 @@ const src = computed(() => {
 </script>
 
 <template>
-  <div class="flex h-6 w-6 items-center justify-center overflow-hidden rounded bg-muted">
-    <img v-if="src" :src="src" alt="" class="h-full w-full object-contain" />
-    <span v-else class="text-xs font-bold text-muted-foreground">{{ letter }}</span>
+  <div class="flex h-5 w-5 shrink-0 items-center justify-center">
+    <img
+      v-if="src"
+      :src="src"
+      alt=""
+      class="h-5 w-5 object-contain select-none transition-transform"
+      style="image-rendering: -webkit-optimize-contrast;"
+    />
+    <div
+      v-else
+      class="flex h-5 w-5 items-center justify-center rounded bg-muted/80 text-[10px] font-bold text-muted-foreground uppercase"
+    >
+      {{ letter }}
+    </div>
   </div>
 </template>
