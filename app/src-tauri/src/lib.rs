@@ -122,10 +122,26 @@ pub fn run() {
                 }
             });
 
-            // ---- Background thread: forward alert events to the frontend -----
+            // ---- Background thread: forward alert events to frontend + OS toast
             let alert_handle = handle.clone();
             std::thread::spawn(move || {
                 for ev in alert_rx {
+                    let current_str = if ev.current_rate >= 1_048_576.0 {
+                        format!("{:.2} MB/s", ev.current_rate / 1_048_576.0)
+                    } else {
+                        format!("{:.2} KB/s", ev.current_rate / 1024.0)
+                    };
+                    let threshold_str = if ev.threshold >= 1_048_576.0 {
+                        format!("{:.2} MB/s", ev.threshold / 1_048_576.0)
+                    } else {
+                        format!("{:.2} KB/s", ev.threshold / 1024.0)
+                    };
+
+                    let body = format!(
+                        "进程「{}」当前速率 {}，超过设定阈值 {}！",
+                        ev.process_name, current_str, threshold_str
+                    );
+                    notify::toast::notify(&alert_handle, "🐾 NetTamer 流量预警", &body);
                     let _ = alert_handle.emit("alert:triggered", ev);
                 }
             });
