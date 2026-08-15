@@ -202,6 +202,7 @@ pub fn run() {
             window_cmds::show_main_window,
             window_cmds::set_floating_click_through,
             window_cmds::show_floating_context_menu,
+            window_cmds::open_url,
         ])
         .on_menu_event(|app, event| {
             let id = event.id().as_ref();
@@ -255,6 +256,26 @@ pub fn run() {
                     app.exit(0);
                 }
                 _ => {}
+            }
+        })
+        .on_window_event(|window, event| {
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if window.label() == "main" {
+                    let app = window.app_handle();
+                    let state = app.state::<crate::state::AppState>();
+                    let minimize_to_tray = state
+                        .config
+                        .get("minimize_to_tray")
+                        .map(|v| v == "true")
+                        .unwrap_or(true);
+
+                    if minimize_to_tray {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    } else {
+                        app.exit(0);
+                    }
+                }
             }
         })
         .run(tauri::generate_context!())

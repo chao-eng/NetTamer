@@ -143,7 +143,6 @@ async function onRefreshChange() {
       </CardHeader>
       <CardContent class="text-sm text-muted-foreground space-y-1">
         <p class="font-medium text-foreground">NetTamer v1.0.0 — 进程级网络监控与流量整形工具</p>
-        <p>技术栈：Tauri 2.0 · Vue 3 · Pinia · shadcn-vue · Tailwind CSS · windows-rs ETW · WinDivert</p>
       </CardContent>
     </Card>
   </div>

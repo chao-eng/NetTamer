@@ -12,6 +12,7 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "NetTamer - 网络驯兽师",
         "width": 1200,
         "height": 800,

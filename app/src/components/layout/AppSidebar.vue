@@ -4,6 +4,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import { LayoutDashboard, List, Bell, Gauge, Settings, Car, Sun, Moon, Minimize2, Github } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { isTauri } from '@/types'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { invokeSafe } from '@/lib/ipc'
 
@@ -25,8 +26,13 @@ async function minimizeToTray() {
   await invokeSafe('minimize_to_tray', undefined, undefined)
 }
 
-function openGithub() {
-  window.open('https://github.com/chao-eng/NetTamer', '_blank')
+async function openGithub() {
+  const url = 'https://github.com/chao-eng/NetTamer'
+  if (isTauri()) {
+    await invokeSafe('open_url', { url }, undefined)
+  } else {
+    window.open(url, '_blank')
+  }
 }
 </script>
 
