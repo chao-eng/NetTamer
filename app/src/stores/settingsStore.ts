@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { invokeSafe } from '@/lib/ipc'
 import {
   DEFAULT_CONFIG,
@@ -9,12 +10,28 @@ import {
 
 function applyTheme(theme: string) {
   if (typeof document === 'undefined') return
-  if (theme === 'dark') {
+  const isDark = theme === 'dark'
+  if (isDark) {
     document.documentElement.classList.add('dark')
+    document.documentElement.setAttribute('data-theme', 'dark')
   } else {
     document.documentElement.classList.remove('dark')
+    document.documentElement.setAttribute('data-theme', 'light')
+  }
+  localStorage.setItem('app-theme', theme)
+
+  try {
+    getCurrentWindow()
+      .setTheme(isDark ? 'dark' : 'light')
+      .catch((e) => console.warn('Failed to set native window theme:', e))
+  } catch {
+    // Non-Tauri fallback
   }
 }
+
+// Immediately apply saved theme on module load to prevent titlebar flicker
+const initialTheme = (typeof localStorage !== 'undefined' && localStorage.getItem('app-theme')) || 'dark'
+applyTheme(initialTheme)
 
 export const useSettingsStore = defineStore('settings', () => {
   const config = ref<Record<string, string>>({ ...DEFAULT_CONFIG })
