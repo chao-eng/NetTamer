@@ -137,9 +137,14 @@ pub fn run() {
                         format!("{:.2} KB/s", ev.threshold / 1024.0)
                     };
 
+                    let dir_str = match ev.direction {
+                        0 => "上传",
+                        1 => "下载",
+                        _ => "网络",
+                    };
                     let body = format!(
-                        "进程「{}」当前速率 {}，超过设定阈值 {}！",
-                        ev.process_name, current_str, threshold_str
+                        "进程「{}」当前{}速率 {}，超过设定阈值 {}！",
+                        ev.process_name, dir_str, current_str, threshold_str
                     );
                     notify::toast::notify(&alert_handle, "🐾 NetTamer 流量预警", &body);
                     let _ = alert_handle.emit("alert:triggered", ev);

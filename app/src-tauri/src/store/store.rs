@@ -158,13 +158,14 @@ impl AlertStore for Db {
         self.conn()?
             .execute(
                 "INSERT INTO alert_events \
-                 (id, rule_id, process_name, pid, current_rate, threshold, triggered_at) \
-                 VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                 (id, rule_id, process_name, pid, direction, current_rate, threshold, triggered_at) \
+                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
                 params![
                     ev.id,
                     ev.rule_id,
                     ev.process_name,
                     ev.pid,
+                    ev.direction,
                     ev.current_rate,
                     ev.threshold,
                     ev.triggered_at,
@@ -176,7 +177,7 @@ impl AlertStore for Db {
 
     fn list_alert_events(&self, f: &AlertHistoryFilter) -> Result<Vec<AlertEvent>, Error> {
         let mut sql = String::from(
-            "SELECT id, rule_id, process_name, pid, current_rate, threshold, triggered_at \
+            "SELECT id, rule_id, process_name, pid, direction, current_rate, threshold, triggered_at \
              FROM alert_events WHERE 1=1",
         );
         let mut args: Vec<String> = Vec::new();
@@ -202,9 +203,10 @@ impl AlertStore for Db {
                     rule_id: r.get(1)?,
                     process_name: r.get(2)?,
                     pid: r.get(3)?,
-                    current_rate: r.get(4)?,
-                    threshold: r.get(5)?,
-                    triggered_at: r.get(6)?,
+                    direction: r.get(4).unwrap_or(0),
+                    current_rate: r.get(5)?,
+                    threshold: r.get(6)?,
+                    triggered_at: r.get(7)?,
                 })
             })
             .map_err(|e| Error(e.to_string()))?;

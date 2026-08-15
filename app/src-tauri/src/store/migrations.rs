@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS alert_events (
     rule_id       TEXT NOT NULL,
     process_name  TEXT NOT NULL,
     pid           INTEGER NOT NULL,
+    direction     INTEGER DEFAULT 0,
     current_rate  REAL NOT NULL,
     threshold     REAL NOT NULL,
     triggered_at  INTEGER NOT NULL,
@@ -55,6 +56,8 @@ const DEFAULT_CONFIG: &[(&str, &str)] = &[
 /// Create tables (idempotent) and seed default config values (idempotent).
 pub fn run(db: &Db) -> Result<(), Error> {
     db.execute_batch(SCHEMA)?;
+    // Attempt column migration if table already existed without direction
+    let _ = db.execute_batch("ALTER TABLE alert_events ADD COLUMN direction INTEGER DEFAULT 0;");
     for (k, v) in DEFAULT_CONFIG {
         db.config_set_if_missing(k, v)?;
     }

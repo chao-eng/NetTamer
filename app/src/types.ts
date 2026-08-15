@@ -40,6 +40,8 @@ export interface AlertEvent {
   ruleId: string
   processName: string
   pid: number
+  /** 触发预警的方向：0 = 上传, 1 = 下载, 2 = 双向 */
+  direction?: number
   /** 触发时的实际速率 bytes/sec */
   currentRate: number
   /** 规则阈值 bytes/sec */

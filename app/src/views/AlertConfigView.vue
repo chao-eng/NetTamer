@@ -150,6 +150,7 @@ onMounted(async () => {
           <TableHeader>
             <TableRow>
               <TableHead>进程</TableHead>
+              <TableHead class="text-right">方向</TableHead>
               <TableHead class="text-right">触发速率</TableHead>
               <TableHead class="text-right">阈值</TableHead>
               <TableHead class="text-right">时间</TableHead>
@@ -158,6 +159,11 @@ onMounted(async () => {
           <TableBody>
             <TableRow v-for="h in alertStore.history" :key="h.id">
               <TableCell>{{ h.processName }}</TableCell>
+              <TableCell class="text-right">
+                <Badge v-if="h.direction === 0" variant="secondary" class="text-warning font-medium">上传</Badge>
+                <Badge v-else-if="h.direction === 1" variant="secondary" class="text-download font-medium">下载</Badge>
+                <Badge v-else variant="secondary">双向</Badge>
+              </TableCell>
               <TableCell class="text-right">{{ formatSpeed(h.currentRate) }}</TableCell>
               <TableCell class="text-right">{{ formatSpeed(h.threshold) }}</TableCell>
               <TableCell class="text-right text-muted-foreground">
@@ -165,7 +171,7 @@ onMounted(async () => {
               </TableCell>
             </TableRow>
             <TableRow v-if="alertStore.history.length === 0">
-              <TableCell colspan="4" class="text-center text-muted-foreground">暂无记录</TableCell>
+              <TableCell colspan="5" class="text-center text-muted-foreground">暂无记录</TableCell>
             </TableRow>
           </TableBody>
         </Table>

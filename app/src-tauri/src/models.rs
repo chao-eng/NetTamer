@@ -44,6 +44,7 @@ pub struct AlertEvent {
     pub rule_id: String,
     pub process_name: String,
     pub pid: u32,
+    pub direction: i32,     // 0 = Upload, 1 = Download, 2 = Both
     pub current_rate: f64,
     pub threshold: f64,
     pub triggered_at: i64,

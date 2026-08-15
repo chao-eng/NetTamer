@@ -71,11 +71,25 @@ impl Engine {
                 }
                 cooldowns.insert(key, Instant::now());
 
+                let ev_direction = match rule.direction {
+                    0 => 0,
+                    1 => 1,
+                    2 => {
+                        if stat.upload_rate >= stat.download_rate {
+                            0
+                        } else {
+                            1
+                        }
+                    }
+                    _ => 0,
+                };
+
                 let ev = AlertEvent {
                     id: crate::models::new_id(),
                     rule_id: rule.id.clone(),
                     process_name: stat.name.clone(),
                     pid: stat.pid,
+                    direction: ev_direction,
                     current_rate: rate,
                     threshold: rule.threshold,
                     triggered_at: crate::models::now_secs(),
