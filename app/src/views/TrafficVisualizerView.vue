@@ -388,7 +388,7 @@ onBeforeUnmount(() => {
               v-if="laneVehicles.up1.isDriving"
               :key="`up1-${laneVehicles.up1.runKey}`"
               class="moving-car-runner drive-pass-left absolute"
-              :style="{ bottom: '-20px', '--drive-dur': `${laneVehicles.up1.durationSec}s` }"
+              :style="{ bottom: '-14px', '--drive-dur': `${laneVehicles.up1.durationSec}s` }"
               @animationend="handlePassCompleted('up1')"
             >
               <RiveCar
@@ -423,7 +423,7 @@ onBeforeUnmount(() => {
               v-if="laneVehicles.up2.isDriving"
               :key="`up2-${laneVehicles.up2.runKey}`"
               class="moving-car-runner drive-pass-left absolute"
-              :style="{ bottom: '-20px', '--drive-dur': `${laneVehicles.up2.durationSec}s` }"
+              :style="{ bottom: '-12px', '--drive-dur': `${laneVehicles.up2.durationSec}s` }"
               @animationend="handlePassCompleted('up2')"
             >
               <RiveCar
@@ -482,7 +482,7 @@ onBeforeUnmount(() => {
               v-if="laneVehicles.down1.isDriving"
               :key="`down1-${laneVehicles.down1.runKey}`"
               class="moving-car-runner drive-pass-right absolute"
-              :style="{ bottom: '-20px', '--drive-dur': `${laneVehicles.down1.durationSec}s` }"
+              :style="{ bottom: '-14px', '--drive-dur': `${laneVehicles.down1.durationSec}s` }"
               @animationend="handlePassCompleted('down1')"
             >
               <RiveCar
@@ -517,7 +517,7 @@ onBeforeUnmount(() => {
               v-if="laneVehicles.down2.isDriving"
               :key="`down2-${laneVehicles.down2.runKey}`"
               class="moving-car-runner drive-pass-right absolute"
-              :style="{ bottom: '-20px', '--drive-dur': `${laneVehicles.down2.durationSec}s` }"
+              :style="{ bottom: '-12px', '--drive-dur': `${laneVehicles.down2.durationSec}s` }"
               @animationend="handlePassCompleted('down2')"
             >
               <RiveCar
