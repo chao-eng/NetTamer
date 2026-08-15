@@ -191,6 +191,7 @@ impl WinDivertEngine {
 
     /// Change the capture filter. WinDivert has no live re-filter API, so this
     /// is a placeholder for a close/reopen cycle (TODO).
+    #[allow(dead_code)]
     pub fn set_filter(&self, _filter: &str) -> Result<(), crate::models::Error> {
         // TODO: implement close-and-reopen with the new filter expression.
         Ok(())

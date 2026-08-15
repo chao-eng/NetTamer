@@ -14,6 +14,7 @@ use crate::models::Direction;
 
 /// A single decoded network event (TCP/UDP send or receive).
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct NetworkEvent {
     pub timestamp: std::time::SystemTime,
     pub pid: u32,

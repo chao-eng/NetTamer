@@ -61,6 +61,7 @@ impl AppState {
         self.running.store(v, Ordering::Relaxed);
     }
 
+    #[allow(dead_code)]
     pub fn refresh_ms(&self) -> u64 {
         self.refresh_interval.load(Ordering::Relaxed).max(100)
     }

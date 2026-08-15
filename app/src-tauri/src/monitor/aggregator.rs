@@ -39,16 +39,20 @@ impl ProcessAccumulator {
     }
 }
 
-/// Sort dimensions for [`Aggregator::top_n`].
-#[derive(Debug, Clone, Copy)]
+/// Sort criteria for the process table (matches UI columns).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum SortField {
-    Upload,
-    Download,
+    UploadRate,
+    DownloadRate,
+    TotalUpload,
+    TotalDownload,
     Name,
     Pid,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum SortOrder {
     Asc,
     Desc,
@@ -57,6 +61,7 @@ pub enum SortOrder {
 /// Rolls up network events into smoothed per-process rates.
 pub struct Aggregator {
     processes: RwLock<HashMap<u32, ProcessAccumulator>>,
+    #[allow(dead_code)]
     window: Duration,
     resolver: Arc<Resolver>,
 }
@@ -122,13 +127,16 @@ impl Aggregator {
         out
     }
 
-    /// Return the top `n` processes sorted by `field` / `order`.
+    /// Return the top `n` processes sorted by the specified field.
+    #[allow(dead_code)]
     pub fn top_n(&self, n: usize, field: SortField, order: SortOrder) -> Vec<ProcessStats> {
         let mut all = self.snapshot();
         let cmp = |a: &ProcessStats, b: &ProcessStats| -> std::cmp::Ordering {
             let ord = match field {
-                SortField::Upload => a.upload_rate.partial_cmp(&b.upload_rate).unwrap_or(std::cmp::Ordering::Equal),
-                SortField::Download => a.download_rate.partial_cmp(&b.download_rate).unwrap_or(std::cmp::Ordering::Equal),
+                SortField::UploadRate => a.upload_rate.partial_cmp(&b.upload_rate).unwrap_or(std::cmp::Ordering::Equal),
+                SortField::DownloadRate => a.download_rate.partial_cmp(&b.download_rate).unwrap_or(std::cmp::Ordering::Equal),
+                SortField::TotalUpload => a.total_upload.cmp(&b.total_upload),
+                SortField::TotalDownload => a.total_download.cmp(&b.total_download),
                 SortField::Name => a.name.cmp(&b.name),
                 SortField::Pid => a.pid.cmp(&b.pid),
             };

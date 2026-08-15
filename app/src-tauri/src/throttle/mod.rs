@@ -43,6 +43,7 @@ impl ThrottleTable {
     }
 
     /// Bind a policy (by id) to a concrete PID and (re)create its bucket.
+    #[allow(dead_code)]
     pub fn set_pid_for_policy(&self, policy_id: &str, pid: u32) {
         let pol = self.policies.read().unwrap().get(policy_id).cloned();
         if let Some(p) = pol {
@@ -91,6 +92,7 @@ impl ThrottleTable {
     }
 
     /// Return the active policy (if any) bound to `pid`.
+    #[allow(dead_code)]
     pub fn policy_for_pid(&self, pid: u32) -> Option<Policy> {
         let name_pid = self.name_pid.lock().unwrap();
         let name = name_pid.iter().find(|(_, &v)| v == pid).map(|(k, _)| k.clone())?;
@@ -109,10 +111,12 @@ impl ThrottleTable {
     }
 
     /// List all stored policies.
+    #[allow(dead_code)]
     pub fn list_policies(&self) -> Vec<Policy> {
         self.policies.read().unwrap().values().cloned().collect()
     }
 
+    #[allow(dead_code)]
     fn ensure_bucket(&self, pid: u32, p: &Policy) {
         let mut buckets = self.buckets.lock().unwrap();
         if p.active && p.rate_limit_bps > 0 {

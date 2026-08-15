@@ -9,6 +9,7 @@ use std::sync::Mutex;
 
 /// Resolved metadata for a process.
 #[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 pub struct Info {
     pub pid: u32,
     pub name: String,
@@ -41,6 +42,7 @@ impl Resolver {
     }
 
     /// Drop a cached entry (e.g. on process exit).
+    #[allow(dead_code)]
     pub fn invalidate(&self, pid: u32) {
         self.cache.lock().unwrap().remove(&pid);
     }

@@ -10,7 +10,7 @@
 //! against the installed WinDivert version (1.4.x uses an ANSI `const char*`
 //! filter string, not a wide string).
 
-#![allow(non_snake_case)]
+#![allow(dead_code, non_snake_case, non_camel_case_types)]
 
 use std::os::raw::c_void;
 
