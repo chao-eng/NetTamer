@@ -19,7 +19,8 @@ const alertStore = useAlertStore()
 const name = ref('')
 const processName = ref('')
 const thresholdKb = ref(512)
-const direction = ref<Direction>(Direction.Upload)
+const alertUpload = ref(true)
+const alertDownload = ref(false)
 const cooldown = ref(30)
 
 async function createRule() {
@@ -27,12 +28,17 @@ async function createRule() {
     toast('请填写进程名', 'error')
     return
   }
+  if (!alertUpload.value && !alertDownload.value) {
+    toast('请至少选择一个预警方向（上传或下载）', 'error')
+    return
+  }
+  const dir = alertUpload.value && alertDownload.value ? 2 : alertUpload.value ? 0 : 1
   const rule: Rule = {
     id: `R_${processName.value}_${Date.now()}`,
     name: name.value.trim() || `预警-${processName.value}`,
     processName: processName.value.trim(),
     threshold: Math.round(Number(thresholdKb.value) * 1024),
-    direction: Number(direction.value),
+    direction: dir,
     cooldownSec: Number(cooldown.value),
     enabled: true,
     createdAt: Math.floor(Date.now() / 1000),
@@ -81,17 +87,18 @@ onMounted(async () => {
             <Input id="rthr" v-model="thresholdKb" type="number" class="mt-1" />
           </div>
           <div>
-            <Label for="rdir">方向</Label>
-            <Select
-              id="rdir"
-              v-model="direction"
-              :options="DIRECTION_OPTIONS"
-              class="mt-1"
-            />
-          </div>
-          <div>
             <Label for="rcd">冷却时间 (秒)</Label>
             <Input id="rcd" v-model="cooldown" type="number" class="mt-1" />
+          </div>
+          <div class="flex flex-col justify-end gap-2 md:col-span-2">
+            <div class="flex items-center justify-between">
+              <Label>预警上传流量</Label>
+              <Switch v-model="alertUpload" />
+            </div>
+            <div class="flex items-center justify-between">
+              <Label>预警下载流量</Label>
+              <Switch v-model="alertDownload" />
+            </div>
           </div>
         </div>
         <div class="flex justify-end">

@@ -18,13 +18,17 @@ const throttleStore = useThrottleStore()
 const processName = ref('')
 const kbps = ref(512)
 const limitUpload = ref(true)
-const limitDownload = ref(true)
+const limitDownload = ref(false)
 
 let unlisten: UnlistenFn = () => {}
 
 async function applyThrottle() {
   if (!processName.value.trim()) {
     toast('请填写进程名', 'error')
+    return
+  }
+  if (!limitUpload.value && !limitDownload.value) {
+    toast('请至少选择一个限速方向（上传或下载）', 'error')
     return
   }
   const policy: Policy = {

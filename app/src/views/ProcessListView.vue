@@ -41,10 +41,11 @@ const selected = ref<ProcessStats | null>(null)
 // 限速表单
 const kbps = ref(512)
 const limitUpload = ref(true)
-const limitDownload = ref(true)
+const limitDownload = ref(false)
 // 预警表单
 const thresholdKb = ref(512)
-const direction = ref<Direction>(Direction.Upload)
+const alertUpload = ref(true)
+const alertDownload = ref(false)
 const cooldown = ref(30)
 
 const sorted = computed(() => processStore.sortedProcesses)
@@ -55,15 +56,23 @@ function sortBy(field: 'uploadRate' | 'downloadRate' | 'name' | 'pid') {
 
 function openThrottle(p: ProcessStats) {
   selected.value = p
+  limitUpload.value = true
+  limitDownload.value = false
   throttleOpen.value = true
 }
 function openAlert(p: ProcessStats) {
   selected.value = p
+  alertUpload.value = true
+  alertDownload.value = false
   alertOpen.value = true
 }
 
 async function applyThrottle() {
   if (!selected.value) return
+  if (!limitUpload.value && !limitDownload.value) {
+    toast('请至少选择一个限速方向（上传或下载）', 'error')
+    return
+  }
   const policy: Policy = {
     id: `NT_${selected.value.name}_${Date.now()}`,
     name: `NT_${selected.value.name}`,
@@ -82,12 +91,17 @@ async function applyThrottle() {
 
 async function createAlert() {
   if (!selected.value) return
+  if (!alertUpload.value && !alertDownload.value) {
+    toast('请至少选择一个预警方向（上传或下载）', 'error')
+    return
+  }
+  const dir = alertUpload.value && alertDownload.value ? 2 : alertUpload.value ? 0 : 1
   const rule: Rule = {
     id: `R_${selected.value.name}_${Date.now()}`,
     name: `预警-${selected.value.name}`,
     processName: selected.value.name,
     threshold: Math.round(Number(thresholdKb.value) * 1024),
-    direction: Number(direction.value),
+    direction: dir,
     cooldownSec: Number(cooldown.value),
     enabled: true,
     createdAt: Math.floor(Date.now() / 1000),
@@ -206,13 +220,13 @@ onBeforeUnmount(() => {
           <Label for="thr">阈值 (KB/s)</Label>
           <Input id="thr" v-model="thresholdKb" type="number" class="mt-1" />
         </div>
-        <div>
-          <Label>方向</Label>
-          <Select
-            v-model="direction"
-            :options="DIRECTION_OPTIONS"
-            class="mt-1"
-          />
+        <div class="flex items-center justify-between">
+          <Label>预警上传流量</Label>
+          <Switch v-model="alertUpload" />
+        </div>
+        <div class="flex items-center justify-between">
+          <Label>预警下载流量</Label>
+          <Switch v-model="alertDownload" />
         </div>
         <div>
           <Label for="cd">冷却时间 (秒)</Label>
