@@ -341,12 +341,13 @@ async function recreateRiveInstance(myGen: number): Promise<void> {
   moveWheelsActive = false
 
   const buffer = await getRivBuffer()
-  if (myGen !== initGeneration || !canvasRef.value) return
+  const canvas = canvasRef.value
+  if (myGen !== initGeneration || !canvas) return
 
   return new Promise((resolve) => {
     riveInstance = new Rive({
       buffer: buffer.slice(0),
-      canvas: canvasRef.value,
+      canvas,
       artboard: 'car_types_artboard',
       stateMachines: 'Machine',
       autoplay: true,
@@ -476,7 +477,8 @@ async function startClickScan(targetCarName: string, myGen: number) {
  * 6. If no match after 16 positions - fallback to animations mode.
  */
 async function initRive() {
-  if (!canvasRef.value) return
+  const canvas = canvasRef.value
+  if (!canvas) return
 
   // Cleanup existing instance
   if (riveInstance) {
@@ -504,7 +506,7 @@ async function initRive() {
 
     riveInstance = new Rive({
       buffer: buffer.slice(0),
-      canvas: canvasRef.value,
+      canvas,
       artboard: 'car_types_artboard',
       stateMachines: 'Machine',
       autoplay: true,
@@ -553,7 +555,8 @@ async function initRive() {
  * This bypasses the state machine entirely - no 4x4 matrix, but also no speed binding.
  */
 function initRiveWithAnimations() {
-  if (!canvasRef.value) return
+  const canvas = canvasRef.value
+  if (!canvas) return
 
   clearAllTimers()
 
@@ -572,7 +575,7 @@ function initRiveWithAnimations() {
 
     riveInstance = new Rive({
       src: '/animations/car-types.riv',
-      canvas: canvasRef.value,
+      canvas,
       artboard: 'car_types_artboard',
       animations: carName,
       autoplay: true,
@@ -651,17 +654,20 @@ const FALLBACK_CARS = [
 
 <template>
   <div
-    class="rive-car-container relative select-none"
+    class="rive-car-container relative select-none outline-none"
     :class="[
       direction === 'left' ? 'is-upload' : 'is-download',
       { 'is-high-speed': isHighSpeed, 'is-ultra-speed': isUltraSpeed },
     ]"
     :style="{ width: width + 'px', height: height + 'px' }"
+    @click.prevent.stop
+    @mousedown.prevent.stop
+    @pointerdown.prevent.stop
   >
-    <!-- Floating Tag / Bubble -->
+    <!-- Floating Tag / Bubble (Hidden by default, displays on vehicle hover) -->
     <div
       v-if="label || subLabel"
-      class="car-tag absolute -top-7 left-1/2 z-50 flex -translate-x-1/2 items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-700/90 bg-slate-950/95 px-2.5 py-0.5 shadow-2xl backdrop-blur-md"
+      class="car-tag absolute -top-2 left-1/2 z-50 flex items-center gap-1.5 whitespace-nowrap rounded-md border border-slate-700/90 bg-slate-950/95 px-2.5 py-0.5 shadow-2xl backdrop-blur-md"
     >
       <span v-if="icon" class="text-xs leading-none">{{ icon }}</span>
       <span class="text-xs font-mono font-bold tracking-tight text-white">{{ label }}</span>
@@ -677,7 +683,7 @@ const FALLBACK_CARS = [
 
     <!-- Outer Direction Flip Box -->
     <div
-      class="car-flip-box relative h-full w-full"
+      class="car-flip-box relative h-full w-full pointer-events-none"
       :style="{ transform: direction === 'right' ? 'scaleX(-1)' : 'scaleX(1)' }"
     >
       <!-- Inner Suspension Bobbing Wrapper -->
@@ -685,19 +691,19 @@ const FALLBACK_CARS = [
         class="car-suspension-layer relative h-full w-full"
         :class="speedMbps > 0 ? 'suspension-bobbing' : 'suspension-idle'"
       >
-        <!-- Rive Canvas (hidden until target car is selected) -->
+        <!-- Rive Canvas (hidden until target car is selected; pointer-events-none prevents click/matrix triggers) -->
         <canvas
           ref="canvasRef"
           :width="width"
           :height="height"
-          class="relative z-10 block h-full w-full object-contain transition-opacity duration-200"
+          class="pointer-events-none relative z-10 block h-full w-full object-contain outline-none transition-opacity duration-200"
           :class="isCarSelected ? 'opacity-100' : 'opacity-0'"
         />
 
         <!-- Fallback emoji when canvas/rive is loading or car not yet selected -->
         <div
           v-if="!isCarSelected"
-          class="absolute inset-0 z-0 flex items-center justify-center text-4xl opacity-90 transition-opacity"
+          class="pointer-events-none absolute inset-0 z-0 flex items-center justify-center text-4xl opacity-90 transition-opacity"
         >
           <span>{{ FALLBACK_CARS[numericCarType] || '\u{1F697}' }}</span>
         </div>
@@ -706,7 +712,7 @@ const FALLBACK_CARS = [
 
     <!-- Realistic Ground Shadow -->
     <div
-      class="car-ground-shadow absolute -bottom-1 left-1/2 h-2.5 w-[75%] -translate-x-1/2 rounded-full"
+      class="car-ground-shadow absolute -bottom-1 left-1/2 h-2.5 w-[75%] -translate-x-1/2 rounded-full pointer-events-none"
       :class="speedMbps > 0 ? 'shadow-bob' : ''"
     ></div>
   </div>
@@ -717,6 +723,32 @@ const FALLBACK_CARS = [
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  pointer-events: auto;
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  outline: none;
+}
+
+/* Floating Tag / Bubble: hidden by default, visible on hover */
+.car-tag {
+  transform: translate(-50%, 6px) scale(0.92);
+  opacity: 0;
+  visibility: hidden;
+  transition:
+    opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.2s cubic-bezier(0.16, 1, 0.3, 1),
+    visibility 0.2s;
+  pointer-events: none;
+}
+
+.rive-car-container:hover .car-tag,
+.rive-car-container:focus-within .car-tag {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0) scale(1);
+  pointer-events: auto;
 }
 
 /* Tag flip correction for upload */
@@ -729,13 +761,13 @@ const FALLBACK_CARS = [
   box-shadow: 0 4px 14px rgba(16, 185, 129, 0.25);
 }
 
-/* Suspension Bobbing & Idle Dynamics */
+/* Suspension Bobbing & Idle Dynamics (Subtle micro-vibrations) */
 .suspension-idle {
-  animation: carIdle 2.6s ease-in-out infinite;
+  animation: carIdle 3s ease-in-out infinite;
 }
 
 .suspension-bobbing {
-  animation: carDriveBob 0.35s ease-in-out infinite;
+  animation: carDriveBob 0.55s ease-in-out infinite;
 }
 
 @keyframes carIdle {
@@ -743,7 +775,7 @@ const FALLBACK_CARS = [
     transform: translateY(0px);
   }
   50% {
-    transform: translateY(-2px);
+    transform: translateY(-0.8px);
   }
 }
 
@@ -752,7 +784,7 @@ const FALLBACK_CARS = [
     transform: translateY(0px);
   }
   50% {
-    transform: translateY(-1.5px);
+    transform: translateY(-0.5px);
   }
 }
 
@@ -764,7 +796,7 @@ const FALLBACK_CARS = [
 }
 
 .shadow-bob {
-  animation: shadowPulse 0.35s ease-in-out infinite;
+  animation: shadowPulse 0.55s ease-in-out infinite;
 }
 
 @keyframes shadowPulse {
@@ -773,8 +805,8 @@ const FALLBACK_CARS = [
     opacity: 0.85;
   }
   50% {
-    transform: translateX(-50%) scale(0.92, 0.85);
-    opacity: 0.6;
+    transform: translateX(-50%) scale(0.97, 0.95);
+    opacity: 0.78;
   }
 }
 </style>

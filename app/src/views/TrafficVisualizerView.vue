@@ -6,7 +6,6 @@ import RiveCar from '@/components/cars/RiveCar.vue'
 import {
   ArrowUpRight,
   ArrowDownRight,
-  Car,
   Activity,
   RotateCcw,
 } from 'lucide-vue-next'
@@ -278,22 +277,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="traffic-visualizer flex h-full flex-col overflow-hidden bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
     <!-- Top HUD Navigation Bar -->
-    <header class="z-30 flex shrink-0 items-center justify-between border-b border-slate-200/80 bg-white/90 px-6 py-3 backdrop-blur-md dark:border-slate-800/80 dark:bg-slate-900/90">
-      <div class="flex items-center gap-3">
-        <div class="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-tr from-cyan-500 to-indigo-600 shadow-lg shadow-cyan-500/20">
-          <Car class="h-5 w-5 text-white" />
-        </div>
-        <div>
-          <h1 class="text-base font-bold tracking-tight text-slate-900 flex items-center gap-2 dark:text-white">
-            流量进程高架公路
-            <span class="inline-flex items-center rounded-full bg-cyan-500/10 px-2 py-0.5 text-xs font-semibold text-cyan-600 border border-cyan-500/20 dark:text-cyan-400">
-              实际进程速率 · 0 速率离道
-            </span>
-          </h1>
-          <p class="text-xs text-slate-500 dark:text-slate-400">小车专属映射活跃进程实时流量 · 速率为 0 自动清场离道</p>
-        </div>
-      </div>
-
+    <header class="z-30 flex shrink-0 items-center justify-end border-b border-slate-200/80 bg-white/90 px-6 py-3 backdrop-blur-md dark:border-slate-800/80 dark:bg-slate-900/90">
       <!-- Live Bandwidth & Control Tools -->
       <div class="flex items-center gap-4">
         <!-- Bandwidth Overview HUD (Strictly Real-time) -->
@@ -746,6 +730,7 @@ onBeforeUnmount(() => {
 /* Single Full-Pass Screen-Crossing Animations (Clean Offscreen-to-Offscreen) */
 .moving-car-runner {
   will-change: left;
+  pointer-events: auto;
 }
 
 /* Download: Single Pass from Left (-190px) to Right (100% + 60px) */
