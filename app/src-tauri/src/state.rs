@@ -67,6 +67,7 @@ impl AppState {
     /// Blocks all active target processes at the kernel ALE layer.
     pub fn sync_wfp_state(&self) {
         let mgr = firewall::Manager::new(self.store.clone(), self.firewall.clone());
+        let _ = mgr.load();
         let active_rules: Vec<crate::models::FirewallRule> = mgr
             .list()
             .unwrap_or_default()

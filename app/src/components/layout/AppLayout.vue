@@ -11,11 +11,13 @@ import type { AlertEvent } from '@/types'
 import { formatSpeed } from '@/composables/useFormatters'
 
 import { useProcessStore } from '@/stores/processStore'
+import { useFirewallStore } from '@/stores/firewallStore'
 
 const route = useRoute()
 const settings = useSettingsStore()
 const alertStore = useAlertStore()
 const processStore = useProcessStore()
+const firewallStore = useFirewallStore()
 let unlisten: UnlistenFn = () => {}
 
 watch(
@@ -29,6 +31,7 @@ watch(
 
 onMounted(async () => {
   settings.load()
+  firewallStore.load()
   processStore.start()
   unlisten = await listenSafe<AlertEvent>('alert:triggered', (ev) => {
     if (ev) {
