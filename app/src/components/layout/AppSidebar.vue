@@ -16,7 +16,10 @@ const route = useRoute()
 
 <template>
   <aside class="flex w-56 shrink-0 flex-col border-r bg-card p-3">
-    <div class="mb-6 px-2 text-xl font-bold tracking-tight">NetTamer</div>
+    <div class="mb-6 flex items-center gap-2 px-2 text-xl font-bold tracking-tight">
+      <span class="text-2xl">🐾</span>
+      <span>NetTamer</span>
+    </div>
     <nav class="flex flex-col gap-1">
       <RouterLink
         v-for="item in items"
