@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import type { UnlistenFn } from '@/types'
 import { useProcessStore } from '@/stores/processStore'
 import RiveCar from '@/components/cars/RiveCar.vue'
 import {
@@ -252,11 +253,13 @@ const activeCarsCount = computed(() => {
 })
 
 let syncTimer: number | null = null
+let unlisten: UnlistenFn[] = []
 
-onMounted(() => {
-  processStore.fetchList()
+onMounted(async () => {
+  await processStore.fetchList()
+  unlisten = await processStore.bindEvents()
   if (!processStore.isMonitoring) {
-    processStore.start()
+    await processStore.start()
   }
   syncAllLanes()
   syncTimer = window.setInterval(syncAllLanes, 1000)
@@ -267,6 +270,8 @@ onBeforeUnmount(() => {
     clearInterval(syncTimer)
     syncTimer = null
   }
+  unlisten.forEach((fn) => fn())
+  unlisten = []
 })
 </script>
 
