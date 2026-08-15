@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { RouterLink, useRoute } from 'vue-router'
-import { LayoutDashboard, List, Bell, Gauge, Settings } from 'lucide-vue-next'
+import { LayoutDashboard, List, Bell, Gauge, Settings, Car } from 'lucide-vue-next'
 import { cn } from '@/lib/utils'
 
 const items = [
   { to: '/', label: '仪表盘', icon: LayoutDashboard },
   { to: '/processes', label: '进程', icon: List },
+  { to: '/visualizer', label: '流量公路', icon: Car },
   { to: '/alerts', label: '预警', icon: Bell },
   { to: '/throttle', label: '限速', icon: Gauge },
   { to: '/settings', label: '设置', icon: Settings },

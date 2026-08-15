@@ -24,6 +24,11 @@ const router = createRouter({
       component: () => import('@/views/ThrottleManagerView.vue'),
     },
     {
+      path: '/visualizer',
+      name: 'visualizer',
+      component: () => import('@/views/TrafficVisualizerView.vue'),
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: () => import('@/views/SettingsView.vue'),
