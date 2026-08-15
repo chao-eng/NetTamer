@@ -9,32 +9,39 @@
 
 - ⚡ **零损耗内核监控**：基于 Windows 原生 **ETW (Event Tracing for Windows)** 内核网络会话（`Microsoft-Windows-Kernel-Network`），以极低 CPU 开销实时捕获每个进程的 TCP/UDP 发送与接收速率。
 - 🎯 **精准双向限速**：集成 **WinDivert (WFP 驱动)** 与**令牌桶算法 (Token Bucket)**，支持按进程名以 **`KB/s`** 粒度独立限制上传、下载或双向带宽。
+- 🚗 **流量高速公路可视化 (Traffic Highway)**：独创拟物化悬浮多车道 3D 视觉流，将各进程网络吞吐实时映射为穿梭车辆与路灯流光，在中央绿化带动态展示全局实时上行/下行速率，支持沉浸式全屏视图。
+- 📌 **桌面置顶网速悬浮窗**：
+  - 默认停靠屏幕右下角黄金区域，置顶常驻桌面。
+  - 全区域支持原生丝滑拖拽移动，双击一键唤出仪表盘主界面。
+  - 右键操作系统级原生上下文菜单，支持 `100% / 80% / 60% / 40%` 透明度调节与**鼠标穿透模式**。
+  - 自动随主界面深浅色主题自适应同步外观，并提供设置页面与托盘菜单双重一键还原通道。
+- 💻 **Windows 任务栏实时网速**：无缝悬浮于任务栏托盘区域，背景全透明、单行垂直精准居中，鼠标点击完全穿透。
 - 🔍 **智能进程识别**：通过 Windows `OpenProcess`、`QueryFullProcessImageNameW` 与快照机制解析真实可执行程序路径与名称，并结合 `GetExtendedTcpTable` / `GetExtendedUdpTable` 维护实时动态端口与 PID 映射。
 - 🚨 **智能超额预警**：支持按进程通配符（如 `chrome*`、`*update*`）自定义上传/下载阈值与冷却时间，超速即时触发 Windows 原生系统气泡通知。
-- 📊 **现代极简 UI**：基于 **Tauri 2.0 + Vue 3 + TypeScript + Tailwind CSS** 构建，原生支持系统托盘常驻、暗黑模式切换与平滑实时折线图。
-- 💾 **轻量本地存储**：内嵌 SQLite 数据库（WAL 模式），本地持久化保存限速规则、预警策略与历史告警日志。
+- 📊 **现代极简 UI**：基于 **Tauri 2.0 + Vue 3 + TypeScript + Tailwind CSS** 构建，原生支持系统托盘常驻、暗黑/浅色模式无缝切换与平滑实时折线图。
+- 💾 **轻量本地存储**：内嵌 SQLite 数据库（WAL 模式），本地持久化保存限速规则、预警策略、悬浮窗配置与历史告警日志。
 
 ---
 
 ## 🏗️ 架构设计
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│                   Frontend (Vue 3 + TS)                     │
-│  Dashboard │ Process List │ Throttle Manager │ Alert Config │
-└──────────────────────────────┬──────────────────────────────┘
-                               │ Tauri 2.0 IPC (Invoke / Event)
-┌──────────────────────────────▼──────────────────────────────┐
-│                    Backend (Rust / Tauri)                   │
-├──────────────────────────────┬──────────────────────────────┤
-│        ETW Monitor           │       WinDivert Engine       │
-│  - Real-time Trace Session   │  - WFP Packet Filtering      │
-│  - UserData Byte Decoder     │  - Token-Bucket Limiter      │
-│  - PortPidMap (Tcp/UdpTable) │  - Inbound / Outbound Drop   │
-│  - EWMA Rate Aggregator      │  - Case-Insensitive Matching │
-├──────────────────────────────┴──────────────────────────────┤
-│   Alert Engine   │   SQLite Store (WAL)   │   Tray & Notify  │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           Frontend (Vue 3 + TS)                             │
+│ Dashboard │ Process List │ Throttle Manager │ Visualizer │ Floating Widget  │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │ Tauri 2.0 IPC (Invoke / Event)
+┌──────────────────────────────────────▼──────────────────────────────────────┐
+│                            Backend (Rust / Tauri)                           │
+├──────────────────────────────────────┬──────────────────────────────────────┤
+│             ETW Monitor              │           WinDivert Engine           │
+│  - Real-time Trace Session           │  - WFP Packet Filtering              │
+│  - UserData Byte Decoder             │  - Token-Bucket Limiter              │
+│  - PortPidMap (Tcp/UdpTable)         │  - Inbound / Outbound Drop           │
+│  - EWMA Rate Aggregator              │  - Case-Insensitive Matching         │
+├──────────────────────────────────────┴──────────────────────────────────────┤
+│  Alert Engine  │  SQLite Store (WAL)  │  Tray & Taskbar  │  Floating Window │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### 技术栈选型
@@ -93,21 +100,23 @@ npm run tauri build
 NetTamer/
 ├── app/
 │   ├── src/                         # Vue 3 前端源码
-│   │   ├── components/              # UI 组件库、图表与通用控件
+│   │   ├── components/              # UI 组件库、图表与布局控件
 │   │   ├── composables/             # 格式化与业务逻辑组合式函数
-│   │   ├── stores/                  # Pinia 状态中心 (进程/限速/预警)
-│   │   ├── views/                   # 视图页面 (仪表盘/进程列表/限速管理等)
+│   │   ├── stores/                  # Pinia 状态中心 (进程/限速/预警/设置)
+│   │   ├── views/                   # 页面视图 (仪表盘/进程列表/限速/公路/悬浮窗等)
 │   │   └── types.ts                 # TypeScript 类型定义
 │   ├── src-tauri/                   # Rust 后端源码
 │   │   ├── bin/                     # WinDivert 64 位原生运行库与驱动
+│   │   ├── capabilities/            # Tauri 2.0 窗口多实例安全授权配置
 │   │   ├── src/
 │   │   │   ├── alert/               # 预警引擎与通配符匹配器
-│   │   │   ├── commands/            # Tauri IPC 指令处理器
+│   │   │   ├── commands/            # Tauri IPC 指令处理器 (监控/配置/窗口等)
 │   │   │   ├── etw/                 # ETW 实时会话与事件解码器
 │   │   │   ├── monitor/             # 流量聚合器与 EWMA 平滑算法
 │   │   │   ├── process/             # 进程路径/名称解析与端口映射表
 │   │   │   ├── store/               # SQLite 持久化层与数据库迁移
 │   │   │   ├── throttle/            # 限速策略管理器与令牌桶表
+│   │   │   ├── tray/                # 系统托盘图标、任务栏网速与悬浮窗调度
 │   │   │   └── windivert/           # WinDivert FFI 与数据包捕获引擎
 │   │   ├── build.rs                 # 原生库链接与清单注入构建脚本
 │   │   └── Cargo.toml               # 后端依赖配置

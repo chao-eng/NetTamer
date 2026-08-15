@@ -1,6 +1,6 @@
 [package]
 name = "nettamer"
-version = "0.1.0"
+version = "1.0.0"
 description = "NetTamer - Windows network monitor & traffic shaper (Rust/Tauri 2.0 backend)"
 authors = ["NetTamer"]
 edition = "2021"
