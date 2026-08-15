@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { invokeSafe } from '@/lib/ipc'
+import { invokeSafe, listenSafe } from '@/lib/ipc'
 import {
   DEFAULT_CONFIG,
   CONFIG_KEYS,
@@ -35,6 +35,16 @@ applyTheme(initialTheme)
 
 export const useSettingsStore = defineStore('settings', () => {
   const config = ref<Record<string, string>>({ ...DEFAULT_CONFIG })
+
+  // Listen to remote config sync events across all windows / tray menus
+  listenSafe<{ key: string; value: string }>('config:sync', (data) => {
+    if (data && data.key) {
+      config.value[data.key] = data.value
+      if (data.key === CONFIG_KEYS.theme) {
+        applyTheme(data.value)
+      }
+    }
+  }).catch(() => {})
 
   async function load() {
     const remote = await invokeSafe<Record<string, string>>(
@@ -77,6 +87,20 @@ export const useSettingsStore = defineStore('settings', () => {
     await set(CONFIG_KEYS.taskbarSpeed, String(!cur))
   }
 
+  async function toggleFloatingSpeed() {
+    const cur = config.value[CONFIG_KEYS.floatingSpeed] === 'true'
+    await set(CONFIG_KEYS.floatingSpeed, String(!cur))
+  }
+
+  async function toggleFloatingClickThrough() {
+    const cur = config.value[CONFIG_KEYS.floatingClickThrough] === 'true'
+    await set(CONFIG_KEYS.floatingClickThrough, String(!cur))
+  }
+
+  async function setFloatingOpacity(op: number) {
+    await set(CONFIG_KEYS.floatingOpacity, String(op))
+  }
+
   const isImmersiveWindow = ref(false)
 
   function toggleImmersiveWindow(val?: boolean) {
@@ -96,6 +120,9 @@ export const useSettingsStore = defineStore('settings', () => {
     toggleAutoStart,
     toggleMinimizeToTray,
     toggleTaskbarSpeed,
+    toggleFloatingSpeed,
+    toggleFloatingClickThrough,
+    setFloatingOpacity,
     isImmersiveWindow,
     toggleImmersiveWindow,
   }

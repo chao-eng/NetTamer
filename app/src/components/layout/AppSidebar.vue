@@ -64,7 +64,7 @@ function openGithub() {
         @click.prevent="openGithub"
       >
         <Github class="h-3.5 w-3.5 shrink-0" />
-        <span class="font-medium">GitHub 源码</span>
+        <span class="font-medium">GitHub 主页</span>
       </a>
 
       <Button

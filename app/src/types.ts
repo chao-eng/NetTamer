@@ -132,6 +132,9 @@ export const CONFIG_KEYS = {
   minimizeToTray: 'minimize_to_tray',
   alertSound: 'alert_sound',
   taskbarSpeed: 'taskbar_speed',
+  floatingSpeed: 'floating_speed',
+  floatingClickThrough: 'floating_click_through',
+  floatingOpacity: 'floating_opacity',
 } as const
 
 export type ConfigKey = (typeof CONFIG_KEYS)[keyof typeof CONFIG_KEYS]
@@ -144,6 +147,9 @@ export const DEFAULT_CONFIG: Record<string, string> = {
   [CONFIG_KEYS.minimizeToTray]: 'true',
   [CONFIG_KEYS.alertSound]: 'true',
   [CONFIG_KEYS.taskbarSpeed]: 'false',
+  [CONFIG_KEYS.floatingSpeed]: 'false',
+  [CONFIG_KEYS.floatingClickThrough]: 'false',
+  [CONFIG_KEYS.floatingOpacity]: '100',
 }
 
 /**

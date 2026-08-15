@@ -124,7 +124,14 @@ pub fn run() {
                         .map(|v| v == "true")
                         .unwrap_or(false);
 
-                    tray::update_speed(&emit_handle, total_up, total_down, taskbar_speed_enabled);
+                    let floating_speed_enabled = store_for_tray
+                        .config_get("floating_speed")
+                        .ok()
+                        .flatten()
+                        .map(|v| v == "true")
+                        .unwrap_or(false);
+
+                    tray::update_speed(&emit_handle, total_up, total_down, taskbar_speed_enabled, floating_speed_enabled);
 
                     let _ = emit_handle.emit("speed:update", stats);
                     let _ = emit_handle.emit(
@@ -193,7 +200,63 @@ pub fn run() {
             config_cmds::get_all_config,
             window_cmds::minimize_to_tray,
             window_cmds::show_main_window,
+            window_cmds::set_floating_click_through,
+            window_cmds::show_floating_context_menu,
         ])
+        .on_menu_event(|app, event| {
+            let id = event.id().as_ref();
+            match id {
+                "float_dashboard" | "dashboard" => {
+                    if let Some(window) = app.get_webview_window("main") {
+                        let _ = window.show();
+                        let _ = window.unminimize();
+                        let _ = window.set_focus();
+                    }
+                }
+                "op_100" => {
+                    let state = app.state::<crate::state::AppState>();
+                    let _ = state.config.set("floating_opacity", "100");
+                    let _ = app.emit("floating:opacity", 100);
+                }
+                "op_80" => {
+                    let state = app.state::<crate::state::AppState>();
+                    let _ = state.config.set("floating_opacity", "80");
+                    let _ = app.emit("floating:opacity", 80);
+                }
+                "op_60" => {
+                    let state = app.state::<crate::state::AppState>();
+                    let _ = state.config.set("floating_opacity", "60");
+                    let _ = app.emit("floating:opacity", 60);
+                }
+                "op_40" => {
+                    let state = app.state::<crate::state::AppState>();
+                    let _ = state.config.set("floating_opacity", "40");
+                    let _ = app.emit("floating:opacity", 40);
+                }
+                "float_click_through" => {
+                    let state = app.state::<crate::state::AppState>();
+                    let cur = state.config.get("floating_click_through").map(|v| v == "true").unwrap_or(false);
+                    let next = !cur;
+                    let _ = state.config.set("floating_click_through", if next { "true" } else { "false" });
+                    if let Some(window) = app.get_webview_window(crate::tray::FLOATING_LABEL) {
+                        let _ = window.set_ignore_cursor_events(next);
+                    }
+                    let _ = app.emit("floating:click-through", next);
+                }
+                "float_hide" => {
+                    let state = app.state::<crate::state::AppState>();
+                    let _ = state.config.set("floating_speed", "false");
+                    if let Some(window) = app.get_webview_window(crate::tray::FLOATING_LABEL) {
+                        let _ = window.hide();
+                    }
+                    let _ = app.emit("config:sync", serde_json::json!({ "key": "floating_speed", "value": "false" }));
+                }
+                "quit" => {
+                    app.exit(0);
+                }
+                _ => {}
+            }
+        })
         .run(tauri::generate_context!())
         .expect("error while running NetTamer");
 }

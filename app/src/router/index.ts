@@ -38,6 +38,11 @@ const router = createRouter({
       name: 'taskbar-widget',
       component: () => import('@/views/TaskbarWidgetView.vue'),
     },
+    {
+      path: '/floating-widget',
+      name: 'floating-widget',
+      component: () => import('@/views/FloatingWidgetView.vue'),
+    },
   ],
   scrollBehavior() {
     return { top: 0 }

@@ -1,13 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Default capability for the main NetTamer window.",
-  "windows": ["main"],
+  "description": "Default capability for all NetTamer windows.",
+  "windows": ["*"],
   "permissions": [
     "core:default",
     "core:event:default",
     "core:window:default",
     "core:window:allow-set-theme",
+    "core:window:allow-start-dragging",
     "core:app:default",
     "notification:default",
     "autostart:default"

@@ -42,6 +42,7 @@ impl Config {
             ("minimize_to_tray", "true"),
             ("alert_sound", "true"),
             ("taskbar_speed", "false"),
+            ("floating_speed", "false"),
         ]
     }
 }

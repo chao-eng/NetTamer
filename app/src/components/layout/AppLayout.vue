@@ -45,7 +45,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div v-if="route.path === '/taskbar-widget'" class="h-screen w-screen bg-transparent overflow-hidden">
+  <div v-if="route.path === '/taskbar-widget' || route.path === '/floating-widget'" class="h-screen w-screen bg-transparent overflow-hidden">
     <router-view />
   </div>
   <div v-else class="flex h-screen w-screen overflow-hidden bg-background text-foreground">
