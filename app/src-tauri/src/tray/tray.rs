@@ -125,7 +125,13 @@ pub fn update_speed(app: &AppHandle, upload_rate: f64, download_rate: f64, taskb
     }
 
     if let Some(widget) = app.get_webview_window(WIDGET_LABEL) {
-        if taskbar_enabled {
+        #[cfg(target_os = "windows")]
+        let is_fullscreen = is_fullscreen_running();
+
+        #[cfg(not(target_os = "windows"))]
+        let is_fullscreen = false;
+
+        if taskbar_enabled && !is_fullscreen {
             if let Some((x, y, w, h)) = get_taskbar_speed_geometry(WIDGET_WIDTH) {
                 #[cfg(target_os = "windows")]
                 pin_taskbar_widget_window(&widget, x, y, w, h);
@@ -275,6 +281,85 @@ pub fn get_taskbar_speed_geometry(widget_width: i32) -> Option<(i32, i32, u32, u
         let y = tray_rect.top;
 
         Some((x, y, widget_width as u32, taskbar_height))
+    }
+}
+
+/// Detect if any application is currently running in full screen (e.g. video players, games).
+#[cfg(target_os = "windows")]
+pub fn is_fullscreen_running() -> bool {
+    use windows_sys::Win32::Foundation::{HWND, RECT};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        FindWindowW, GetClassNameW, GetDesktopWindow, GetForegroundWindow, GetWindowRect,
+    };
+
+    #[repr(C)]
+    struct MONITORINFO {
+        cb_size: u32,
+        rc_monitor: RECT,
+        rc_work: RECT,
+        dw_flags: u32,
+    }
+
+    const MONITOR_DEFAULTTONEAREST: u32 = 2;
+
+    #[link(name = "user32")]
+    extern "system" {
+        fn MonitorFromWindow(hwnd: HWND, dw_flags: u32) -> usize;
+        fn GetMonitorInfoW(hmonitor: usize, lpmi: *mut MONITORINFO) -> i32;
+    }
+
+    unsafe {
+        let fg_hwnd = GetForegroundWindow();
+        if fg_hwnd == 0 {
+            return false;
+        }
+
+        let desktop = GetDesktopWindow();
+        let shell_tray = FindWindowW(
+            [83, 104, 101, 108, 108, 95, 84, 114, 97, 121, 87, 110, 100, 0].as_ptr(), // "Shell_TrayWnd"
+            std::ptr::null(),
+        );
+
+        if fg_hwnd == desktop || fg_hwnd == shell_tray {
+            return false;
+        }
+
+        let mut class_buf = [0u16; 64];
+        let class_len = GetClassNameW(fg_hwnd, class_buf.as_mut_ptr(), 64);
+        if class_len > 0 {
+            let class_name = String::from_utf16_lossy(&class_buf[..class_len as usize]);
+            if class_name == "Progman"
+                || class_name == "WorkerW"
+                || class_name == "Shell_TrayWnd"
+                || class_name == "Shell_SecondaryTrayWnd"
+            {
+                return false;
+            }
+        }
+
+        let mut app_rect = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+        if GetWindowRect(fg_hwnd, &mut app_rect) == 0 {
+            return false;
+        }
+
+        let hmon = MonitorFromWindow(fg_hwnd, MONITOR_DEFAULTTONEAREST);
+        if hmon == 0 {
+            return false;
+        }
+
+        let mut mon_info: MONITORINFO = std::mem::zeroed();
+        mon_info.cb_size = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(hmon, &mut mon_info) == 0 {
+            return false;
+        }
+
+        // Check if the foreground window bounds completely cover or exceed the monitor screen
+        let is_covering = app_rect.left <= mon_info.rc_monitor.left
+            && app_rect.top <= mon_info.rc_monitor.top
+            && app_rect.right >= mon_info.rc_monitor.right
+            && app_rect.bottom >= mon_info.rc_monitor.bottom;
+
+        is_covering
     }
 }
 
