@@ -225,22 +225,11 @@ impl Resolver {
             return ProcessCategory::Kernel;
         }
 
-        #[link(name = "kernel32")]
-        extern "system" {
-            fn ProcessIdToSessionId(process_id: u32, session_id: *mut u32) -> i32;
-        }
-
-        // Check Windows Session ID (Session 0 is dedicated to Windows Services).
-        let mut session_id: u32 = 1;
-        let has_session = unsafe { ProcessIdToSessionId(pid, &mut session_id) };
-
-        if has_session != 0 && session_id == 0 {
-            return ProcessCategory::WindowsService;
-        }
-
-        // Known Windows system components / services
         let name_lower = name.to_lowercase();
-        let known_services = [
+        let path_lower = path.to_lowercase();
+
+        // 1. Known Windows built-in core system services
+        let known_windows_services = [
             "svchost.exe",
             "services.exe",
             "lsass.exe",
@@ -259,17 +248,31 @@ impl Resolver {
             "searchindexer.exe",
             "audiodg.exe",
             "wlanext.exe",
+            "dashost.exe",
+            "explorer.exe",
         ];
 
-        if known_services.contains(&name_lower.as_str()) {
+        if known_windows_services.contains(&name_lower.as_str()) {
             return ProcessCategory::WindowsService;
         }
 
-        // Check if path is in System32 / SysWOW64
-        let path_lower = path.to_lowercase();
-        if (path_lower.contains("\\windows\\system32\\") || path_lower.contains("\\windows\\syswow64\\"))
-            && (has_session != 0 && session_id == 0)
-        {
+        // 2. Check Windows Session ID (Session 0 is dedicated to Windows Services).
+        #[link(name = "kernel32")]
+        extern "system" {
+            fn ProcessIdToSessionId(process_id: u32, session_id: *mut u32) -> i32;
+        }
+
+        let mut session_id: u32 = 1;
+        let has_session = unsafe { ProcessIdToSessionId(pid, &mut session_id) };
+
+        // Must be located in C:\Windows\ AND in Session 0 to be a Windows native system service.
+        // Third-party background services (e.g. verge-mihomo, MySQL, Docker) belong to UserApp.
+        let is_in_windows_dir = path_lower.starts_with("c:\\windows\\")
+            || path_lower.contains("\\windows\\system32\\")
+            || path_lower.contains("\\windows\\syswow64\\")
+            || path_lower.contains("\\windows\\systemapps\\");
+
+        if is_in_windows_dir && has_session != 0 && session_id == 0 {
             return ProcessCategory::WindowsService;
         }
 
