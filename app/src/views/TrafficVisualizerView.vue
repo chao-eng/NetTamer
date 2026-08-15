@@ -552,11 +552,6 @@ onBeforeUnmount(() => {
           </span>
         </div>
 
-        <div class="flex items-center gap-2 text-xs font-mono text-slate-400">
-          <span class="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span>严格绑定实际进程流量 · 0 速率自动离场</span>
-        </div>
-
         <!-- Refresh / Reset Button -->
         <button
           @click="processStore.fetchList(); syncAllLanes();"
