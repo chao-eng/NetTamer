@@ -3,6 +3,7 @@ import { ref, reactive, computed, onMounted, onBeforeUnmount, onActivated, onDea
 import type { UnlistenFn } from '@/types'
 import { useProcessStore } from '@/stores/processStore'
 import { useSettingsStore } from '@/stores/settingsStore'
+import { formatSpeed } from '@/composables/useFormatters'
 import RiveCar from '@/components/cars/RiveCar.vue'
 import {
   ArrowUpRight,
@@ -16,17 +17,6 @@ import {
 const processStore = useProcessStore()
 const settings = useSettingsStore()
 
-function bytesToMBps(bytesPerSec: number): number {
-  return bytesPerSec / (1024 * 1024)
-}
-
-function formatRate(mbps: number): string {
-  if (mbps <= 0) return '0.0 KB/s'
-  if (mbps < 1) return `${(mbps * 1024).toFixed(1)} KB/s`
-  if (mbps >= 1024) return `${(mbps / 1024).toFixed(2)} GB/s`
-  return `${mbps.toFixed(1)} MB/s`
-}
-
 function calculateDriveDuration(rateMBps: number): number {
   if (rateMBps <= 0.001) return 0
   const duration = 16.5 / (Math.pow(rateMBps, 0.45) + 0.6)
@@ -39,6 +29,7 @@ interface LaneVehicle {
   carType: number
   name: string
   icon: string
+  rawBytes: number
   rateMBps: number
   speedMbps: number
   durationSec: number
@@ -55,11 +46,12 @@ const laneVehicles = reactive<Record<'up1' | 'up2' | 'down1' | 'down2', LaneVehi
     carType: 0, // Truck
     name: '',
     icon: '📤',
+    rawBytes: 0,
     rateMBps: 0,
     speedMbps: 0,
     durationSec: 3.5,
     isDriving: false,
-    rateFormatted: '0.0 KB/s',
+    rateFormatted: '0 B/s',
     runKey: 1,
   },
   up2: {
@@ -68,11 +60,12 @@ const laneVehicles = reactive<Record<'up1' | 'up2' | 'down1' | 'down2', LaneVehi
     carType: 13, // Sedan
     name: '',
     icon: '📤',
+    rawBytes: 0,
     rateMBps: 0,
     speedMbps: 0,
     durationSec: 5.0,
     isDriving: false,
-    rateFormatted: '0.0 KB/s',
+    rateFormatted: '0 B/s',
     runKey: 2,
   },
   down1: {
@@ -81,11 +74,12 @@ const laneVehicles = reactive<Record<'up1' | 'up2' | 'down1' | 'down2', LaneVehi
     carType: 5, // Supercar
     name: '',
     icon: '📥',
+    rawBytes: 0,
     rateMBps: 0,
     speedMbps: 0,
     durationSec: 2.0,
     isDriving: false,
-    rateFormatted: '0.0 KB/s',
+    rateFormatted: '0 B/s',
     runKey: 3,
   },
   down2: {
@@ -94,11 +88,12 @@ const laneVehicles = reactive<Record<'up1' | 'up2' | 'down1' | 'down2', LaneVehi
     carType: 11, // SUV
     name: '',
     icon: '📥',
+    rawBytes: 0,
     rateMBps: 0,
     speedMbps: 0,
     durationSec: 4.5,
     isDriving: false,
-    rateFormatted: '0.0 KB/s',
+    rateFormatted: '0 B/s',
     runKey: 4,
   },
 })
@@ -116,7 +111,8 @@ const carReady = reactive<Record<'up1' | 'up2' | 'down1' | 'down2', boolean>>({
 
 // Query strictly real-time ETW active process for each track
 function fetchProcessForLane(laneKey: 'up1' | 'up2' | 'down1' | 'down2'): {
-  rate: number
+  rawBytes: number
+  rateMBps: number
   name: string
   icon: string
 } {
@@ -128,12 +124,13 @@ function fetchProcessForLane(laneKey: 'up1' | 'up2' | 'down1' | 'down2'): {
     const target = laneKey === 'up1' ? activeUploads[0] : activeUploads[1]
     if (target && target.uploadRate > 0) {
       return {
-        rate: bytesToMBps(target.uploadRate),
+        rawBytes: target.uploadRate,
+        rateMBps: target.uploadRate / (1024 * 1024),
         name: target.name,
         icon: '📤',
       }
     }
-    return { rate: 0, name: '', icon: '' }
+    return { rawBytes: 0, rateMBps: 0, name: '', icon: '' }
   } else {
     const activeDownloads = processStore.processes
       .filter((p) => p.downloadRate > 0)
@@ -142,12 +139,13 @@ function fetchProcessForLane(laneKey: 'up1' | 'up2' | 'down1' | 'down2'): {
     const target = laneKey === 'down1' ? activeDownloads[0] : activeDownloads[1]
     if (target && target.downloadRate > 0) {
       return {
-        rate: bytesToMBps(target.downloadRate),
+        rawBytes: target.downloadRate,
+        rateMBps: target.downloadRate / (1024 * 1024),
         name: target.name,
         icon: '📥',
       }
     }
-    return { rate: 0, name: '', icon: '' }
+    return { rawBytes: 0, rateMBps: 0, name: '', icon: '' }
   }
 }
 
@@ -170,23 +168,25 @@ function syncLane(laneKey: 'up1' | 'up2' | 'down1' | 'down2') {
   const v = laneVehicles[laneKey]
   const p = fetchProcessForLane(laneKey)
 
-  if (p.rate > 0.001) {
+  if (p.rawBytes > 0) {
     if (!v.isDriving) {
       // Start driving on the highway
       carReady[laneKey] = false
-      v.rateMBps = p.rate
-      v.speedMbps = p.rate * 8
-      v.durationSec = calculateDriveDuration(p.rate)
-      v.rateFormatted = formatRate(p.rate)
+      v.rawBytes = p.rawBytes
+      v.rateMBps = p.rateMBps
+      v.speedMbps = p.rateMBps * 8
+      v.durationSec = calculateDriveDuration(p.rateMBps)
+      v.rateFormatted = formatSpeed(p.rawBytes)
       v.name = p.name
       v.icon = p.icon
-      v.carType = getCarTypeForProcess(p.name, p.rate)
+      v.carType = getCarTypeForProcess(p.name, p.rateMBps)
       v.runKey++
       v.isDriving = true
     }
   } else {
     // 0 rate: if not currently mid-run, ensure isDriving is false
     if (!v.isDriving) {
+      v.rawBytes = 0
       v.rateMBps = 0
       v.speedMbps = 0
       v.name = ''
@@ -215,9 +215,10 @@ function handlePassCompleted(laneKey: 'up1' | 'up2' | 'down1' | 'down2') {
   // Query latest rate for this process
   const p = fetchProcessForLane(laneKey)
 
-  if (p.rate <= 0.001) {
+  if (p.rawBytes <= 0) {
     // Process stopped / rate is 0 -> Disappear from highway
     v.isDriving = false
+    v.rawBytes = 0
     v.rateMBps = 0
     v.speedMbps = 0
     v.name = ''
@@ -226,18 +227,19 @@ function handlePassCompleted(laneKey: 'up1' | 'up2' | 'down1' | 'down2') {
 
   // Rate is still > 0 -> Ready for next pass
   v.isDriving = false
-  v.carType = getCarTypeForProcess(p.name, p.rate)
-  v.rateMBps = p.rate
-  v.speedMbps = p.rate * 8
-  v.durationSec = calculateDriveDuration(p.rate)
-  v.rateFormatted = formatRate(p.rate)
+  v.carType = getCarTypeForProcess(p.name, p.rateMBps)
+  v.rawBytes = p.rawBytes
+  v.rateMBps = p.rateMBps
+  v.speedMbps = p.rateMBps * 8
+  v.durationSec = calculateDriveDuration(p.rateMBps)
+  v.rateFormatted = formatSpeed(p.rawBytes)
   v.name = p.name
   v.icon = p.icon
 
   // Restart next run with brief natural re-entry stagger (200ms - 600ms)
   const staggerWait = 200 + Math.random() * 400
   setTimeout(() => {
-    if (fetchProcessForLane(laneKey).rate > 0.001) {
+    if (fetchProcessForLane(laneKey).rawBytes > 0) {
       carReady[laneKey] = false
       v.runKey++
       v.isDriving = true
@@ -297,29 +299,6 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="traffic-visualizer flex h-full w-full flex-col overflow-hidden bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
-    <!-- Top HUD Navigation Bar (Hidden in Immersive Window mode) -->
-    <header
-      v-if="!settings.isImmersiveWindow"
-      class="z-30 flex shrink-0 items-center justify-end border-b border-slate-200/80 bg-white/90 px-6 py-3 backdrop-blur-md dark:border-slate-800/80 dark:bg-slate-900/90"
-    >
-      <!-- Live Bandwidth & Control Tools -->
-      <div class="flex items-center gap-4">
-        <!-- Bandwidth Overview HUD (Strictly Real-time) -->
-        <div class="flex items-center gap-4 text-xs font-mono">
-          <div class="flex items-center gap-1.5 text-amber-600 dark:text-amber-400">
-            <ArrowUpRight class="h-4 w-4" />
-            <span class="text-slate-500 dark:text-slate-400">上行总计:</span>
-            <span class="font-bold">{{ (processStore.totalUploadRate / 1024 / 1024).toFixed(2) }} MB/s</span>
-          </div>
-          <div class="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400">
-            <ArrowDownRight class="h-4 w-4" />
-            <span class="text-slate-500 dark:text-slate-400">下行总计:</span>
-            <span class="font-bold">{{ (processStore.totalDownloadRate / 1024 / 1024).toFixed(2) }} MB/s</span>
-          </div>
-        </div>
-      </div>
-    </header>
-
     <!-- Main Highway Stage (Static Stage + Pure Active Process Cars) -->
     <div class="highway-stage relative flex-1 select-none overflow-hidden">
       <!-- Floating Exit Immersive Button (appears in immersive window mode) -->
@@ -448,14 +427,22 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <!-- Central Green Isolation Belt & Crash Barrier -->
-        <div class="central-barrier-strip relative z-15 flex h-6 w-full items-center justify-between bg-gradient-to-r from-emerald-100/90 via-teal-100/90 to-emerald-100/90 px-6 border-y-2 border-emerald-600/40 shadow-[0_0_12px_rgba(16,185,129,0.18)] dark:from-emerald-950 dark:via-teal-950 dark:to-emerald-950 dark:border-emerald-500/50 dark:shadow-[0_0_15px_rgba(16,185,129,0.35)]">
-          <div class="flex items-center gap-2 text-xs font-bold tracking-wide text-emerald-700 dark:text-emerald-400">
+        <!-- Central Green Isolation Belt & Crash Barrier with Live Traffic Stats -->
+        <div class="central-barrier-strip relative z-15 flex h-7 w-full items-center justify-between bg-gradient-to-r from-emerald-100/90 via-teal-100/90 to-emerald-100/90 px-6 border-y-2 border-emerald-600/40 shadow-[0_0_12px_rgba(16,185,129,0.18)] dark:from-emerald-950 dark:via-teal-950 dark:to-emerald-950 dark:border-emerald-500/50 dark:shadow-[0_0_15px_rgba(16,185,129,0.35)] font-mono">
+          <!-- Upload traffic label & live sum -->
+          <div class="flex items-center gap-2 text-xs font-bold tracking-wide text-emerald-800 dark:text-emerald-300">
             <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse dark:bg-emerald-400"></span>
             <span>上行流量 ←</span>
+            <span class="ml-2 font-extrabold text-amber-700 dark:text-amber-300 bg-emerald-200/70 dark:bg-emerald-900/80 px-2.5 py-0.5 rounded shadow-sm border border-emerald-300/40 dark:border-emerald-700/50">
+              {{ formatSpeed(processStore.totalUploadRate) }}
+            </span>
           </div>
 
-          <div class="flex items-center gap-2 text-xs font-bold tracking-wide text-cyan-700 dark:text-cyan-400">
+          <!-- Download traffic label & live sum -->
+          <div class="flex items-center gap-2 text-xs font-bold tracking-wide text-cyan-800 dark:text-cyan-300">
+            <span class="mr-2 font-extrabold text-cyan-700 dark:text-cyan-300 bg-teal-200/70 dark:bg-teal-900/80 px-2.5 py-0.5 rounded shadow-sm border border-teal-300/40 dark:border-teal-700/50">
+              {{ formatSpeed(processStore.totalDownloadRate) }}
+            </span>
             <span>下行流量 →</span>
             <span class="h-2 w-2 rounded-full bg-cyan-500 animate-pulse dark:bg-cyan-400"></span>
           </div>
