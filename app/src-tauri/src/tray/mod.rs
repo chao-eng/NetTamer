@@ -1,6 +1,5 @@
 //! System tray icon + menu.
 
-pub mod native_overlay;
 pub mod speed_icon;
 pub mod tray;
 
