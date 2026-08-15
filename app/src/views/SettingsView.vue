@@ -73,6 +73,17 @@ async function onRefreshChange() {
 
         <div class="flex items-center justify-between">
           <div>
+            <Label>总网速包含系统内核流量 (PID 4)</Label>
+            <p class="text-xs text-muted-foreground">默认关闭以过滤 Windows 内核回环与 ACK 波动；开启后将计入 PID 4 的全部流量统计</p>
+          </div>
+          <Switch
+            :model-value="settingsStore.config[CONFIG_KEYS.includeKernelStats] === 'true'"
+            @update:model-value="settingsStore.toggleIncludeKernelStats()"
+          />
+        </div>
+
+        <div class="flex items-center justify-between">
+          <div>
             <Label>任务栏网速显示</Label>
             <p class="text-xs text-muted-foreground">在系统任务栏托盘左侧显示紧凑实时网速（↑ / ↓）</p>
           </div>

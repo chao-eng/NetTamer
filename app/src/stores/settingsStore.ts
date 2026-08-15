@@ -82,6 +82,11 @@ export const useSettingsStore = defineStore('settings', () => {
     await set(CONFIG_KEYS.minimizeToTray, String(!cur))
   }
 
+  async function toggleIncludeKernelStats() {
+    const cur = config.value[CONFIG_KEYS.includeKernelStats] === 'true'
+    await set(CONFIG_KEYS.includeKernelStats, String(!cur))
+  }
+
   async function toggleTaskbarSpeed() {
     const cur = config.value[CONFIG_KEYS.taskbarSpeed] === 'true'
     await set(CONFIG_KEYS.taskbarSpeed, String(!cur))
@@ -119,6 +124,7 @@ export const useSettingsStore = defineStore('settings', () => {
     toggleTheme,
     toggleAutoStart,
     toggleMinimizeToTray,
+    toggleIncludeKernelStats,
     toggleTaskbarSpeed,
     toggleFloatingSpeed,
     toggleFloatingClickThrough,

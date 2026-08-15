@@ -115,8 +115,25 @@ pub fn run() {
                     tokio::time::sleep(Duration::from_millis(ms)).await;
 
                     let stats = agg.snapshot();
-                    let total_up: f64 = stats.iter().map(|s| s.upload_rate).sum();
-                    let total_down: f64 = stats.iter().map(|s| s.download_rate).sum();
+
+                    let include_kernel_stats = store_for_tray
+                        .config_get("include_kernel_stats")
+                        .ok()
+                        .flatten()
+                        .map(|v| v == "true")
+                        .unwrap_or(false);
+
+                    let total_up: f64 = stats
+                        .iter()
+                        .filter(|s| include_kernel_stats || s.category != crate::models::ProcessCategory::Kernel)
+                        .map(|s| s.upload_rate)
+                        .sum();
+
+                    let total_down: f64 = stats
+                        .iter()
+                        .filter(|s| include_kernel_stats || s.category != crate::models::ProcessCategory::Kernel)
+                        .map(|s| s.download_rate)
+                        .sum();
 
                     // Evaluate alert rules against the fresh snapshot (sends
                     // AlertEvents which the forwarding thread emits as
