@@ -1,9 +1,9 @@
 # 🐾 NetTamer — 项目架构设计文档
 
-> **版本**: v2.0.0-draft  
-> **日期**: 2026-08-14  
-> **状态**: 设计阶段  
-> **重大变更**: v2 将原 v1 的 **Wails v3 (Go)** 方案替换为 **Tauri 2.0 (Rust)**；ETW 监控由 Go 库改为 **windows-rs / windows-sys**；限速由 Windows QoS Policy (PowerShell) 改为 **WinDivert (Rust crate)** 数据包拦截 / 修改 / 重发 / 过滤。
+> **版本**: v2.1.0  
+> **日期**: 2026-08-15  
+> **状态**: 稳定迭代阶段  
+> **重大变更**: v2.1 将原 WinDivert 抓包驱动方案彻底升级为 **Windows Filtering Platform (WFP)** 原生 ALE 过滤与 **Windows Defender Firewall** 双层内核隔离机制，实现零第三方驱动依赖与精准进程级联网阻断/放行。
 
 ---
 

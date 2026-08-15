@@ -1,22 +1,18 @@
 <script setup lang="ts">
 import { onMounted, onBeforeUnmount, ref, computed } from 'vue'
-import type { ProcessStats, Policy, Rule } from '@/types'
-import { Direction, DIRECTION_OPTIONS } from '@/types'
+import type { ProcessStats, Rule } from '@/types'
 import { useProcessStore } from '@/stores/processStore'
-import { useThrottleStore } from '@/stores/throttleStore'
+import { useFirewallStore } from '@/stores/firewallStore'
 import { useAlertStore } from '@/stores/alertStore'
 import { toast } from '@/components/ui/toast'
 import {
   Card,
-  CardHeader,
-  CardTitle,
   CardContent,
 } from '@/components/ui/card'
 import ProcessIcon from '@/components/common/ProcessIcon.vue'
 import SpeedBadge from '@/components/common/SpeedBadge.vue'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Select } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -29,19 +25,16 @@ import {
   TableCell,
 } from '@/components/ui/table'
 import { Dialog } from '@/components/ui/dialog'
+import { ShieldBan, ShieldCheck, Bell } from 'lucide-vue-next'
 
 const processStore = useProcessStore()
-const throttleStore = useThrottleStore()
+const firewallStore = useFirewallStore()
 const alertStore = useAlertStore()
 
-const throttleOpen = ref(false)
 const alertOpen = ref(false)
+const blockConfirmOpen = ref(false)
 const selected = ref<ProcessStats | null>(null)
 
-// 限速表单
-const kbps = ref(512)
-const limitUpload = ref(true)
-const limitDownload = ref(false)
 // 预警表单
 const thresholdKb = ref(512)
 const alertUpload = ref(true)
@@ -54,39 +47,30 @@ function sortBy(field: 'uploadRate' | 'downloadRate' | 'name' | 'pid') {
   processStore.setSort(field)
 }
 
-function openThrottle(p: ProcessStats) {
+function promptBlock(p: ProcessStats) {
   selected.value = p
-  limitUpload.value = true
-  limitDownload.value = false
-  throttleOpen.value = true
+  blockConfirmOpen.value = true
 }
+
+async function confirmBlock() {
+  if (!selected.value) return
+  await firewallStore.blockProcess(selected.value.name)
+  await firewallStore.load()
+  toast(`已禁止「${selected.value.name}」联网`, 'success')
+  blockConfirmOpen.value = false
+}
+
+async function toggleUnblock(p: ProcessStats) {
+  await firewallStore.unblockProcess(p.name)
+  await firewallStore.load()
+  toast(`已恢复「${p.name}」的网络连接`, 'success')
+}
+
 function openAlert(p: ProcessStats) {
   selected.value = p
   alertUpload.value = true
   alertDownload.value = false
   alertOpen.value = true
-}
-
-async function applyThrottle() {
-  if (!selected.value) return
-  if (!limitUpload.value && !limitDownload.value) {
-    toast('请至少选择一个限速方向（上传或下载）', 'error')
-    return
-  }
-  const policy: Policy = {
-    id: `NT_${selected.value.name}_${Date.now()}`,
-    name: `NT_${selected.value.name}`,
-    processName: selected.value.name,
-    rateLimitBps: Math.round(kbps.value * 1024 * 8),
-    limitUpload: limitUpload.value,
-    limitDownload: limitDownload.value,
-    active: true,
-    createdAt: Math.floor(Date.now() / 1000),
-  }
-  await throttleStore.apply(policy)
-  await throttleStore.load()
-  toast('已应用限速策略', 'success')
-  throttleOpen.value = false
 }
 
 async function createAlert() {
@@ -116,6 +100,7 @@ let unlisten: (() => void)[] = []
 
 onMounted(async () => {
   await processStore.fetchList()
+  await firewallStore.load()
   unlisten = await processStore.bindEvents()
   if (!processStore.isMonitoring) {
     await processStore.start()
@@ -164,6 +149,13 @@ onBeforeUnmount(() => {
                 <div class="flex items-center gap-2">
                   <ProcessIcon :icon-b64="p.iconB64" :name="p.name" />
                   <span class="truncate">{{ p.name }}</span>
+                  <Badge
+                    v-if="firewallStore.isBlocked(p.name)"
+                    variant="destructive"
+                    class="ml-1 text-[10px] px-1.5 py-0 h-4 bg-red-500/15 text-red-500 border-red-500/20"
+                  >
+                    已断网
+                  </Badge>
                 </div>
               </TableCell>
               <TableCell class="tabular">{{ p.pid }}</TableCell>
@@ -174,9 +166,36 @@ onBeforeUnmount(() => {
                 <SpeedBadge :rate="p.downloadRate" direction="down" />
               </TableCell>
               <TableCell class="text-right">
-                <div class="flex justify-end gap-2">
-                  <Button size="sm" variant="outline" @click="openThrottle(p)">限速</Button>
-                  <Button size="sm" variant="outline" @click="openAlert(p)">预警</Button>
+                <div class="flex justify-end gap-1.5">
+                  <Button
+                    v-if="firewallStore.isBlocked(p.name)"
+                    size="sm"
+                    variant="outline"
+                    class="h-7 gap-1 text-xs text-green-600 border-green-500/30 hover:bg-green-500/10"
+                    @click="toggleUnblock(p)"
+                  >
+                    <ShieldCheck class="h-3.5 w-3.5" />
+                    放行
+                  </Button>
+                  <Button
+                    v-else
+                    size="sm"
+                    variant="outline"
+                    class="h-7 gap-1 text-xs text-red-500 border-red-500/20 hover:bg-red-500/10"
+                    @click="promptBlock(p)"
+                  >
+                    <ShieldBan class="h-3.5 w-3.5" />
+                    断网
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    class="h-7 gap-1 text-xs"
+                    @click="openAlert(p)"
+                  >
+                    <Bell class="h-3.5 w-3.5" />
+                    预警
+                  </Button>
                 </div>
               </TableCell>
             </TableRow>
@@ -185,31 +204,30 @@ onBeforeUnmount(() => {
       </CardContent>
     </Card>
 
-    <Dialog v-model:open="throttleOpen" title="进程限速">
-      <div class="flex flex-col gap-3">
-        <div>
-          <Label>进程</Label>
-          <div class="mt-1 text-sm font-medium">{{ selected?.name }}</div>
-        </div>
-        <div>
-          <Label for="kbps">限速值 (KB/s)</Label>
-          <Input id="kbps" v-model="kbps" type="number" class="mt-1" />
-        </div>
-        <div class="flex items-center justify-between">
-          <Label>限制上传</Label>
-          <Switch v-model="limitUpload" />
-        </div>
-        <div class="flex items-center justify-between">
-          <Label>限制下载</Label>
-          <Switch v-model="limitDownload" />
+    <!-- Block Confirmation Dialog -->
+    <Dialog v-model:open="blockConfirmOpen" title="禁止进程联网">
+      <div class="flex flex-col gap-3 py-2">
+        <div class="flex items-center gap-3">
+          <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-500/10 text-red-500">
+            <ShieldBan class="h-5 w-5" />
+          </div>
+          <div>
+            <div class="text-sm font-semibold">确认对「{{ selected?.name }}」执行断网？</div>
+            <div class="text-xs text-muted-foreground mt-0.5">
+              启用后，该进程发起的全部网络连接请求将在 Windows 内核 ALE 层被立即拦截。
+            </div>
+          </div>
         </div>
       </div>
       <template #footer>
-        <Button variant="ghost" @click="throttleOpen = false">取消</Button>
-        <Button @click="applyThrottle">应用</Button>
+        <Button variant="ghost" @click="blockConfirmOpen = false">取消</Button>
+        <Button class="bg-red-600 hover:bg-red-700 text-white" @click="confirmBlock">
+          确认禁止联网
+        </Button>
       </template>
     </Dialog>
 
+    <!-- Alert Rule Dialog -->
     <Dialog v-model:open="alertOpen" title="创建预警规则">
       <div class="flex flex-col gap-3">
         <div>

@@ -3,4 +3,4 @@
 pub mod migrations;
 pub mod store;
 
-pub use store::{AlertStore, ConfigStore, Db, ThrottleStore};
+pub use store::{AlertStore, ConfigStore, Db, FirewallStore};

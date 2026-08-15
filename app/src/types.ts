@@ -50,16 +50,11 @@ export interface AlertEvent {
   triggeredAt: number
 }
 
-/** 限速策略（事件 `throttle:changed`）。 */
-export interface Policy {
+/** 进程联网控制/防火墙阻断规则。 */
+export interface FirewallRule {
   id: string
-  /** 策略名，约定前缀 `NT_` */
   name: string
   processName: string
-  /** 限速值，bits/sec，0 表示不限速 */
-  rateLimitBps: number
-  limitUpload: boolean
-  limitDownload: boolean
   active: boolean
   /** unix 时间戳（秒） */
   createdAt: number

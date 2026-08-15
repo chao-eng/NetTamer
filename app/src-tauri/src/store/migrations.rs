@@ -28,13 +28,10 @@ CREATE TABLE IF NOT EXISTS alert_events (
 );
 CREATE INDEX IF NOT EXISTS idx_alert_events_time ON alert_events(triggered_at DESC);
 
-CREATE TABLE IF NOT EXISTS throttle_policies (
+CREATE TABLE IF NOT EXISTS firewall_rules (
     id             TEXT PRIMARY KEY,
-    name           TEXT NOT NULL UNIQUE,
+    name           TEXT NOT NULL,
     process_name   TEXT NOT NULL,
-    rate_limit_bps INTEGER NOT NULL,
-    limit_upload   INTEGER DEFAULT 1,
-    limit_download INTEGER DEFAULT 1,
     active         INTEGER DEFAULT 1,
     created_at     INTEGER DEFAULT 0
 );

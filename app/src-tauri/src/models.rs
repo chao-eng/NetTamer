@@ -50,16 +50,13 @@ pub struct AlertEvent {
     pub triggered_at: i64,
 }
 
-/// A throttle (rate-limit) policy applied to a process.
+/// A firewall block rule applied to a process.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct Policy {
+pub struct FirewallRule {
     pub id: String,
     pub name: String,
     pub process_name: String,
-    pub rate_limit_bps: u64, // bits/sec
-    pub limit_upload: bool,
-    pub limit_download: bool,
     pub active: bool,
     pub created_at: i64,
 }
@@ -81,21 +78,11 @@ pub struct SystemStats {
     pub total_download_rate: f64,
 }
 
-/// Traffic direction (used internally by the ETW / WinDivert engines).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Traffic direction (used internally for traffic filtering and alerts).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Direction {
     Send,
     Recv,
-}
-
-impl Direction {
-    /// Returns `true` if this direction should be limited for the given policy.
-    pub fn matches_policy(&self, p: &Policy) -> bool {
-        match self {
-            Direction::Send => p.limit_upload,
-            Direction::Recv => p.limit_download,
-        }
-    }
 }
 
 /// Local error type. We keep it as a single string-wrapping error so every

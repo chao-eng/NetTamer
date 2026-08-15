@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { LayoutDashboard, List, Bell, Gauge, Settings, Car, Sun, Moon, Minimize2, Github } from 'lucide-vue-next'
+import { LayoutDashboard, List, Bell, ShieldBan, Settings, Car, Sun, Moon, Minimize2, Github } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { isTauri } from '@/types'
@@ -13,7 +13,7 @@ const items = [
   { to: '/processes', label: '进程', icon: List },
   { to: '/visualizer', label: '流量公路', icon: Car },
   { to: '/alerts', label: '预警', icon: Bell },
-  { to: '/throttle', label: '限速', icon: Gauge },
+  { to: '/firewall', label: '联网控制', icon: ShieldBan },
   { to: '/settings', label: '设置', icon: Settings },
 ]
 

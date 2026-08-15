@@ -47,6 +47,131 @@ impl Resolver {
         self.cache.lock().unwrap().remove(&pid);
     }
 
+    /// Find all executable paths for running processes matching the given process name.
+    /// Supports matching "chrome.exe", "chrome", or full path.
+    pub fn find_exe_paths_by_name(&self, process_name: &str) -> Vec<String> {
+        let trimmed = process_name.trim();
+        if trimmed.is_empty() {
+            return Vec::new();
+        }
+
+        // If it's already an absolute existing file path, return it directly.
+        if std::path::Path::new(trimmed).is_absolute() {
+            return vec![trimmed.to_string()];
+        }
+
+        let target_lower = trimmed.to_lowercase();
+        let target_with_exe = if target_lower.ends_with(".exe") {
+            target_lower.clone()
+        } else {
+            format!("{}.exe", target_lower)
+        };
+
+        let mut paths = Vec::new();
+
+        // 1. Check existing cache first
+        {
+            let cache = self.cache.lock().unwrap();
+            for info in cache.values() {
+                let name_lower = info.name.to_lowercase();
+                if (name_lower == target_lower || name_lower == target_with_exe) && !info.path.is_empty() {
+                    paths.push(info.path.clone());
+                }
+            }
+        }
+
+        // 2. Enumerate live processes snapshot to find current PIDs
+        use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
+        use windows_sys::Win32::System::Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+            TH32CS_SNAPPROCESS,
+        };
+
+        unsafe {
+            let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+            if snap != INVALID_HANDLE_VALUE && snap != 0 {
+                let mut entry: PROCESSENTRY32W = std::mem::zeroed();
+                entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+                if Process32FirstW(snap, &mut entry) != 0 {
+                    loop {
+                        let name_len = entry
+                            .szExeFile
+                            .iter()
+                            .position(|&c| c == 0)
+                            .unwrap_or(entry.szExeFile.len());
+                        let exe_name = String::from_utf16_lossy(&entry.szExeFile[..name_len]).to_lowercase();
+
+                        if exe_name == target_lower || exe_name == target_with_exe {
+                            if let Some(path) = Self::query_image_name(entry.th32ProcessID) {
+                                paths.push(path);
+                            }
+                        }
+
+                        if Process32NextW(snap, &mut entry) == 0 {
+                            break;
+                        }
+                    }
+                }
+                CloseHandle(snap);
+            }
+        }
+
+        // 3. Fallback: query common paths and environment if not found in running processes
+        if paths.is_empty() {
+            if let Some(path) = Self::find_installed_exe_path(&target_with_exe) {
+                paths.push(path);
+            }
+        }
+
+        paths.sort();
+        paths.dedup();
+        paths
+    }
+
+    /// Search common install directories and App Paths registry for the executable.
+    fn find_installed_exe_path(exe_name: &str) -> Option<String> {
+        // A. Check common paths
+        let program_files = std::env::var("ProgramFiles").unwrap_or_else(|_| "C:\\Program Files".to_string());
+        let program_files_x86 = std::env::var("ProgramFiles(x86)").unwrap_or_else(|_| "C:\\Program Files (x86)".to_string());
+        let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_default();
+        let sys_root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+
+        let candidates = [
+            format!("{}\\Google\\Chrome\\Application\\{}", program_files, exe_name),
+            format!("{}\\Google\\Chrome\\Application\\{}", program_files_x86, exe_name),
+            format!("{}\\Google\\Chrome\\Application\\{}", local_app_data, exe_name),
+            format!("{}\\Microsoft\\Edge\\Application\\{}", program_files, exe_name),
+            format!("{}\\Microsoft\\Edge\\Application\\{}", program_files_x86, exe_name),
+            format!("{}\\Steam\\{}", program_files_x86, exe_name),
+            format!("{}\\Steam\\{}", program_files, exe_name),
+            format!("{}\\Tencent\\WeChat\\{}", program_files, exe_name),
+            format!("{}\\Tencent\\WeChat\\{}", program_files_x86, exe_name),
+            format!("{}\\System32\\{}", sys_root, exe_name),
+            format!("{}\\{}", sys_root, exe_name),
+        ];
+
+        for cand in candidates {
+            if std::path::Path::new(&cand).is_file() {
+                return Some(cand);
+            }
+        }
+
+        // B. Check PATH environment variable
+        if let Ok(path_var) = std::env::var("PATH") {
+            for dir in std::env::split_paths(&path_var) {
+                let full = dir.join(exe_name);
+                if full.is_file() {
+                    if let Some(s) = full.to_str() {
+                        return Some(s.to_string());
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
     /// Query the OS for process name and path via Win32 APIs.
     fn query_process(pid: u32) -> Info {
         // PID 0 (System Idle) and PID 4 (System) are special.

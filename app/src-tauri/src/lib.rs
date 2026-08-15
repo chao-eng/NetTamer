@@ -1,6 +1,6 @@
 //! NetTamer — Tauri 2.0 application entry point (Rust backend).
 //!
-//! Wires together the ETW monitor, the WinDivert throttle engine, the alert
+//! Wires together the ETW monitor, the WFP process filtering engine, the alert
 //! engine, the SQLite store and the typed config, then exposes everything to
 //! the frontend through `#[tauri::command]`s and background `app.emit(...)` events.
 
@@ -8,15 +8,15 @@ mod alert;
 mod commands;
 mod config;
 mod etw;
+mod firewall;
 mod models;
 mod monitor;
 mod notify;
 mod process;
 mod state;
 mod store;
-mod throttle;
 mod tray;
-mod windivert;
+mod wfp;
 
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
@@ -25,7 +25,7 @@ use std::time::Duration;
 use tauri::{Emitter, Manager};
 
 // Bring every command into scope for `generate_handler!`.
-use crate::commands::{alert as alert_cmds, config as config_cmds, monitor as monitor_cmds, throttle as throttle_cmds, window as window_cmds};
+use crate::commands::{alert as alert_cmds, config as config_cmds, firewall as firewall_cmds, monitor as monitor_cmds, window as window_cmds};
 
 use crate::models::{AlertEvent, SystemStats};
 use crate::state::AppState;
@@ -63,11 +63,14 @@ pub fn run() {
                 Duration::from_secs(1),
                 resolver.clone(),
             ));
-            let throttle = Arc::new(throttle::ThrottleTable::new());
-            let throttle_mgr = throttle::Manager::new(store.clone(), throttle.clone());
-            if let Err(e) = throttle_mgr.load() {
-                log::warn!("failed to load throttle policies on startup: {e}");
+            let firewall = Arc::new(firewall::FirewallTable::new());
+            let firewall_mgr = firewall::Manager::new(store.clone(), firewall.clone());
+            if let Err(e) = firewall_mgr.load() {
+                log::warn!("failed to load firewall rules on startup: {e}");
             }
+
+            // Initialize WFP native filtering engine
+            let wfp = Arc::new(wfp::WfpEngine::new().map_err(|e| e.to_string())?);
 
             // Alert engine owns one side of the alert event channel; a dedicated
             // thread forwards `AlertEvent`s to the frontend as `alert:triggered`.
@@ -85,8 +88,8 @@ pub fn run() {
             let app_state = AppState {
                 etw: Mutex::new(None),
                 aggregator,
-                windivert: Mutex::new(None),
-                throttle,
+                wfp,
+                firewall,
                 alert,
                 store,
                 port_map,
@@ -95,6 +98,9 @@ pub fn run() {
                 refresh_interval,
                 running: std::sync::atomic::AtomicBool::new(false),
             };
+
+            // Sync loaded rules to WFP
+            app_state.sync_wfp_state();
 
             // ---- Background task: emit speed + system stats every N ms -------
             let agg = app_state.aggregator.clone();
@@ -192,9 +198,9 @@ pub fn run() {
             alert_cmds::delete_alert_rule,
             alert_cmds::list_alert_rules,
             alert_cmds::get_alert_history,
-            throttle_cmds::apply_throttle_policy,
-            throttle_cmds::remove_throttle_policy,
-            throttle_cmds::list_throttle_policies,
+            firewall_cmds::apply_firewall_rule,
+            firewall_cmds::remove_firewall_rule,
+            firewall_cmds::list_firewall_rules,
             config_cmds::get_config,
             config_cmds::set_config,
             config_cmds::get_all_config,

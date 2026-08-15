@@ -1,4 +1,4 @@
-//! Process metadata and the socket -> PID mapping used by WinDivert.
+//! Process metadata and network socket mapping.
 
 pub mod info;
 pub mod port_map;

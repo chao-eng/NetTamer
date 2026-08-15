@@ -1,4 +1,4 @@
-//! Monitoring commands: start/stop ETW+WinDivert, list processes, set interval.
+//! Monitoring commands: start/stop ETW, list processes, set interval.
 
 use std::sync::atomic::Ordering;
 
@@ -8,14 +8,14 @@ use crate::etw;
 use crate::models::ProcessStats;
 use crate::state::AppState;
 
-/// Start live monitoring: open the ETW session and the WinDivert engine.
+/// Start live monitoring: open the ETW session.
 #[tauri::command]
 pub fn start_monitoring(state: State<'_, AppState>) -> Result<(), String> {
     if state.is_running() {
         return Ok(());
     }
 
-    // 1) ETW real-time session feeding the aggregator.
+    // ETW real-time session feeding the aggregator.
     let (session, rx) = etw::Session::start(1024).map_err(|e| e.to_string())?;
     let agg = state.aggregator.clone();
     std::thread::spawn(move || {
@@ -26,20 +26,14 @@ pub fn start_monitoring(state: State<'_, AppState>) -> Result<(), String> {
 
     *state.etw.lock().unwrap() = Some(session);
     state.set_running(true);
-
-    // 2) Sync WinDivert state (only started if there are active throttle policies)
-    state.sync_windivert_state();
     Ok(())
 }
 
-/// Stop live monitoring and release both engines.
+/// Stop live monitoring and release the ETW session.
 #[tauri::command]
 pub fn stop_monitoring(state: State<'_, AppState>) -> Result<(), String> {
     if let Some(session) = state.etw.lock().unwrap().take() {
         session.stop().map_err(|e| e.to_string())?;
-    }
-    if let Some(engine) = state.windivert.lock().unwrap().take() {
-        engine.stop();
     }
     state.set_running(false);
     Ok(())

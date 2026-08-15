@@ -2,6 +2,6 @@
 
 pub mod alert;
 pub mod config;
+pub mod firewall;
 pub mod monitor;
-pub mod throttle;
 pub mod window;

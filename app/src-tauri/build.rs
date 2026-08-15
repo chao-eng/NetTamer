@@ -1,18 +1,6 @@
 // Pre-link build script for Tauri 2. Generates the context (window/plugin/menu
 // definitions, embedded icons, etc.) consumed by `tauri::generate_context!()`.
 fn main() {
-    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-    let bin_dir = std::path::Path::new(&manifest_dir).join("bin");
-    println!("cargo:rustc-link-search=native={}", bin_dir.display());
-
-    if let Ok(out_dir) = std::env::var("OUT_DIR") {
-        if let Some(dir) = std::path::Path::new(&out_dir).ancestors().nth(3) {
-            let _ = std::fs::copy(bin_dir.join("WinDivert.dll"), dir.join("WinDivert.dll"));
-            let _ = std::fs::copy(bin_dir.join("WinDivert64.sys"), dir.join("WinDivert64.sys"));
-            let _ = std::fs::copy(bin_dir.join("WinDivert64.sys"), dir.join("WinDivert.sys"));
-        }
-    }
-
     #[cfg(target_os = "windows")]
     {
         use tauri_build::WindowsAttributes;

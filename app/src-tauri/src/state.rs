@@ -5,17 +5,18 @@
 //! remaining the same instance the `#[tauri::command]` handlers read through
 //! `tauri::State`.
 
+use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::alert;
 use crate::config;
 use crate::etw;
+use crate::firewall;
 use crate::monitor;
 use crate::process;
 use crate::store;
-use crate::throttle;
-use crate::windivert;
+use crate::wfp;
 
 pub struct AppState {
     /// Active ETW trace session (started/stopped by the monitor commands).
@@ -24,11 +25,11 @@ pub struct AppState {
     /// Per-process rate aggregator. Snapshotted once per `refresh_interval`.
     pub aggregator: Arc<monitor::Aggregator>,
 
-    /// Active WinDivert capture engine.
-    pub windivert: Mutex<Option<Arc<windivert::WinDivertEngine>>>,
+    /// Native WFP Engine for process-level network isolation.
+    pub wfp: Arc<wfp::WfpEngine>,
 
-    /// Runtime throttle table (token buckets keyed by PID).
-    pub throttle: Arc<throttle::ThrottleTable>,
+    /// Firewall rule table for process network isolation.
+    pub firewall: Arc<firewall::FirewallTable>,
 
     /// Alert rule engine.
     pub alert: Arc<alert::Engine>,
@@ -36,10 +37,11 @@ pub struct AppState {
     /// SQLite-backed persistence layer.
     pub store: store::Db,
 
-    /// Socket -> PID mapping used by the WinDivert engine.
+    /// Socket -> PID mapping (used for connection metadata).
+    #[allow(dead_code)]
     pub port_map: Arc<process::PortPidMap>,
 
-    /// Process metadata resolver (name / path / icon).
+    /// Process metadata resolver (name / path / icon / exe lookup).
     pub resolver: Arc<process::Resolver>,
 
     /// Typed config accessor over the `config` table.
@@ -48,7 +50,7 @@ pub struct AppState {
     /// Emit cadence in milliseconds (updated by `set_refresh_interval`).
     pub refresh_interval: Arc<AtomicU64>,
 
-    /// Whether live monitoring (ETW + WinDivert) is currently active.
+    /// Whether live monitoring (ETW) is currently active.
     pub running: AtomicBool,
 }
 
@@ -61,44 +63,52 @@ impl AppState {
         self.running.store(v, Ordering::Relaxed);
     }
 
-    /// Dynamically syncs the WinDivert capture engine status (Plan A - Process Specific Port Filtering):
-    /// Only runs if monitoring is active AND there is at least one active rate-limiting policy.
-    /// Dedicated to target processes; completely stops WinDivert if no active policies exist.
-    pub fn sync_windivert_state(&self) {
-        if !self.is_running() {
-            return;
-        }
-
-        let mgr = throttle::Manager::new(self.store.clone(), self.throttle.clone());
-        let active_targets: Vec<String> = mgr
+    /// Synchronize active firewall rules with the native WFP filtering engine.
+    /// Blocks all active target processes at the kernel ALE layer.
+    pub fn sync_wfp_state(&self) {
+        let mgr = firewall::Manager::new(self.store.clone(), self.firewall.clone());
+        let active_rules: Vec<crate::models::FirewallRule> = mgr
             .list()
             .unwrap_or_default()
             .into_iter()
-            .filter(|p| p.active && p.rate_limit_bps > 0)
-            .map(|p| p.process_name)
+            .filter(|r| r.active)
             .collect();
 
-        let mut guard = self.windivert.lock().unwrap();
-        if !active_targets.is_empty() {
-            if let Some(engine) = guard.as_ref() {
-                engine.update_targets(active_targets);
+        let mut target_paths: HashSet<String> = HashSet::new();
+
+        for rule in &active_rules {
+            let found_paths = self.resolver.find_exe_paths_by_name(&rule.process_name);
+            if found_paths.is_empty() {
+                // If the process isn't running yet but is an absolute path, add it directly.
+                if std::path::Path::new(&rule.process_name).is_absolute() {
+                    target_paths.insert(rule.process_name.to_lowercase());
+                } else {
+                    log::debug!(
+                        "WFP sync: target process '{}' has no active running instances yet",
+                        rule.process_name
+                    );
+                }
             } else {
-                match windivert::WinDivertEngine::start(
-                    active_targets,
-                    self.throttle.clone(),
-                    self.port_map.clone(),
-                    self.resolver.clone(),
-                ) {
-                    Ok(engine) => {
-                        *guard = Some(engine);
-                        log::info!("WinDivert capture engine started on demand for targeted processes (Plan A)");
-                    }
-                    Err(e) => log::warn!("WinDivert engine failed to start: {e}"),
+                for path in found_paths {
+                    target_paths.insert(path.to_lowercase());
                 }
             }
-        } else if let Some(engine) = guard.take() {
-            engine.stop();
-            log::info!("WinDivert capture engine stopped (no active rate limit policies)");
+        }
+
+        let currently_blocked: HashSet<String> = self.wfp.list_blocked().into_iter().collect();
+
+        // 1. Block new target processes
+        for path in target_paths.difference(&currently_blocked) {
+            if let Err(e) = self.wfp.block_process(path) {
+                log::warn!("WFP sync: failed to block process '{}': {e}", path);
+            }
+        }
+
+        // 2. Unblock processes no longer in active rules
+        for path in currently_blocked.difference(&target_paths) {
+            if let Err(e) = self.wfp.unblock_process(path) {
+                log::warn!("WFP sync: failed to unblock process '{}': {e}", path);
+            }
         }
     }
 

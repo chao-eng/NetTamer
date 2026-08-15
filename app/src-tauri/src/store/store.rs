@@ -10,7 +10,7 @@ use r2d2::Pool;
 use r2d2_sqlite::SqliteConnectionManager;
 use rusqlite::{params, params_from_iter};
 
-use crate::models::{AlertEvent, AlertHistoryFilter, Error, Policy, Rule};
+use crate::models::{AlertEvent, AlertHistoryFilter, Error, FirewallRule, Rule};
 
 type Conn = r2d2::PooledConnection<SqliteConnectionManager>;
 
@@ -23,11 +23,11 @@ pub trait AlertStore {
     fn list_alert_events(&self, f: &AlertHistoryFilter) -> Result<Vec<AlertEvent>, Error>;
 }
 
-/// Persistence contract for throttle policies.
-pub trait ThrottleStore {
-    fn save_policy(&self, p: &Policy) -> Result<(), Error>;
-    fn delete_policy(&self, id: &str) -> Result<(), Error>;
-    fn list_policies(&self) -> Result<Vec<Policy>, Error>;
+/// Persistence contract for firewall rules.
+pub trait FirewallStore {
+    fn save_firewall_rule(&self, rule: &FirewallRule) -> Result<(), Error>;
+    fn delete_firewall_rule(&self, id: &str) -> Result<(), Error>;
+    fn list_firewall_rules(&self) -> Result<Vec<FirewallRule>, Error>;
 }
 
 /// Persistence contract for the KV config table.
@@ -214,56 +214,50 @@ impl AlertStore for Db {
     }
 }
 
-// ------------------------- ThrottleStore -------------------------
-
-impl ThrottleStore for Db {
-    fn save_policy(&self, p: &Policy) -> Result<(), Error> {
+// ------------------------- FirewallStore -------------------------
+ 
+impl FirewallStore for Db {
+    fn save_firewall_rule(&self, rule: &FirewallRule) -> Result<(), Error> {
         self.conn()?
             .execute(
-                "INSERT OR REPLACE INTO throttle_policies \
-                 (id, name, process_name, rate_limit_bps, limit_upload, limit_download, active, created_at) \
-                 VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+                "INSERT OR REPLACE INTO firewall_rules \
+                 (id, name, process_name, active, created_at) \
+                 VALUES (?1,?2,?3,?4,?5)",
                 params![
-                    p.id,
-                    p.name,
-                    p.process_name,
-                    p.rate_limit_bps,
-                    p.limit_upload as i64,
-                    p.limit_download as i64,
-                    p.active as i64,
-                    p.created_at,
+                    rule.id,
+                    rule.name,
+                    rule.process_name,
+                    rule.active as i64,
+                    rule.created_at,
                 ],
             )
             .map_err(|e| Error(e.to_string()))?;
         Ok(())
     }
 
-    fn delete_policy(&self, id: &str) -> Result<(), Error> {
+    fn delete_firewall_rule(&self, id: &str) -> Result<(), Error> {
         self.conn()?
-            .execute("DELETE FROM throttle_policies WHERE id = ?1", params![id])
+            .execute("DELETE FROM firewall_rules WHERE id = ?1", params![id])
             .map_err(|e| Error(e.to_string()))?;
         Ok(())
     }
 
-    fn list_policies(&self) -> Result<Vec<Policy>, Error> {
+    fn list_firewall_rules(&self) -> Result<Vec<FirewallRule>, Error> {
         let c = self.conn()?;
         let mut stmt = c
             .prepare(
-                "SELECT id, name, process_name, rate_limit_bps, limit_upload, limit_download, active, created_at \
-                 FROM throttle_policies",
+                "SELECT id, name, process_name, active, created_at \
+                 FROM firewall_rules",
             )
             .map_err(|e| Error(e.to_string()))?;
         let rows = stmt
             .query_map([], |r| {
-                Ok(Policy {
+                Ok(FirewallRule {
                     id: r.get(0)?,
                     name: r.get(1)?,
                     process_name: r.get(2)?,
-                    rate_limit_bps: r.get(3)?,
-                    limit_upload: r.get::<_, i64>(4)? != 0,
-                    limit_download: r.get::<_, i64>(5)? != 0,
-                    active: r.get::<_, i64>(6)? != 0,
-                    created_at: r.get(7)?,
+                    active: r.get::<_, i64>(3)? != 0,
+                    created_at: r.get(4)?,
                 })
             })
             .map_err(|e| Error(e.to_string()))?;

@@ -31,10 +31,6 @@
     "active": true,
     "targets": ["msi", "nsis"],
     "icon": ["icons/icon.ico"],
-    "resources": [
-      "bin/WinDivert.dll",
-      "bin/WinDivert64.sys"
-    ],
     "windows": {
       "nsis": {
         "installerHooks": "nsis-hooks.nsh"

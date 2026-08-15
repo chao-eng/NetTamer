@@ -19,9 +19,10 @@ const router = createRouter({
       component: () => import('@/views/AlertConfigView.vue'),
     },
     {
-      path: '/throttle',
-      name: 'throttle',
-      component: () => import('@/views/ThrottleManagerView.vue'),
+      path: '/firewall',
+      alias: '/throttle',
+      name: 'firewall',
+      component: () => import('@/views/FirewallManagerView.vue'),
     },
     {
       path: '/visualizer',

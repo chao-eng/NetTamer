@@ -48,42 +48,20 @@ impl PortPidMap {
     }
 
     /// Look up the owning PID for a local/remote socket.
+    #[allow(dead_code)]
     pub fn lookup(&self, addr: &SocketAddr) -> Option<u32> {
         // Quick lookup in address map
         if let Some(pid) = self.addr_map.read().unwrap().get(addr).copied() {
             return Some(pid);
         }
         // Fallback to port-only lookup
-        if let Some(pid) = self.port_map.read().unwrap().get(&addr.port()).copied() {
-            return Some(pid);
-        }
-
-        // If not found and it's been more than 200ms since last refresh, refresh once
-        if self.should_refresh() {
-            self.refresh();
-            if let Some(pid) = self.addr_map.read().unwrap().get(addr).copied() {
-                return Some(pid);
-            }
-            return self.port_map.read().unwrap().get(&addr.port()).copied();
-        }
-
-        None
+        self.port_map.read().unwrap().get(&addr.port()).copied()
     }
 
-    /// Look up by port number directly.
+    /// Look up by port number directly (pure read, see `lookup`).
+    #[allow(dead_code)]
     pub fn lookup_port(&self, port: u16) -> Option<u32> {
-        if let Some(pid) = self.port_map.read().unwrap().get(&port).copied() {
-            return Some(pid);
-        }
-        if self.should_refresh() {
-            self.refresh();
-            return self.port_map.read().unwrap().get(&port).copied();
-        }
-        None
-    }
-
-    fn should_refresh(&self) -> bool {
-        self.last_refresh.read().unwrap().elapsed() > std::time::Duration::from_millis(200)
+        self.port_map.read().unwrap().get(&port).copied()
     }
 
     /// Refresh the table from the OS.
@@ -188,33 +166,6 @@ impl PortPidMap {
         *self.addr_map.write().unwrap() = new_addr_map;
         *self.port_map.write().unwrap() = new_port_map;
         *self.last_refresh.write().unwrap() = Instant::now();
-    }
-
-    /// Query all active ports currently held by any process matching the given names.
-    pub fn get_ports_for_process_names(
-        &self,
-        names: &[String],
-        resolver: &crate::process::Resolver,
-    ) -> Vec<u16> {
-        self.refresh();
-        let port_map = self.port_map.read().unwrap();
-        let mut matching_ports = Vec::new();
-
-        let lower_names: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
-
-        for (&port, &pid) in port_map.iter() {
-            let proc_name = resolver.resolve(pid).name.to_lowercase();
-            if lower_names.iter().any(|target| {
-                *target == proc_name
-                    || format!("{}.exe", target) == proc_name
-                    || *target == format!("{}.exe", proc_name)
-            }) {
-                matching_ports.push(port);
-            }
-        }
-        matching_ports.sort_unstable();
-        matching_ports.dedup();
-        matching_ports
     }
 }
 
