@@ -110,6 +110,7 @@ onMounted(async () => {
             <TableRow>
               <TableHead>名称</TableHead>
               <TableHead>进程</TableHead>
+              <TableHead class="text-right">方向</TableHead>
               <TableHead class="text-right">阈值</TableHead>
               <TableHead class="text-right">状态</TableHead>
               <TableHead class="text-right">操作</TableHead>
@@ -119,6 +120,11 @@ onMounted(async () => {
             <TableRow v-for="r in alertStore.rules" :key="r.id">
               <TableCell>{{ r.name }}</TableCell>
               <TableCell>{{ r.processName }}</TableCell>
+              <TableCell class="text-right">
+                <Badge v-if="r.direction === 0" variant="secondary" class="text-warning font-medium">上传</Badge>
+                <Badge v-else-if="r.direction === 1" variant="secondary" class="text-download font-medium">下载</Badge>
+                <Badge v-else variant="secondary">双向</Badge>
+              </TableCell>
               <TableCell class="text-right">{{ formatSpeed(r.threshold) }}</TableCell>
               <TableCell class="text-right">
                 <Switch :model-value="r.enabled" @update:model-value="toggleEnabled(r)" />
@@ -128,7 +134,7 @@ onMounted(async () => {
               </TableCell>
             </TableRow>
             <TableRow v-if="alertStore.rules.length === 0">
-              <TableCell colspan="5" class="text-center text-muted-foreground">暂无规则</TableCell>
+              <TableCell colspan="6" class="text-center text-muted-foreground">暂无规则</TableCell>
             </TableRow>
           </TableBody>
         </Table>
