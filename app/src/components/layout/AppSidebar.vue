@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
-import { LayoutDashboard, List, Bell, Gauge, Settings, Car, Sun, Moon, Minimize2 } from 'lucide-vue-next'
+import { LayoutDashboard, List, Bell, Gauge, Settings, Car, Sun, Moon, Minimize2, Github } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -23,6 +23,10 @@ const isDark = computed(() => (settings.config.theme ?? 'dark') === 'dark')
 
 async function minimizeToTray() {
   await invokeSafe('minimize_to_tray', undefined, undefined)
+}
+
+function openGithub() {
+  window.open('https://github.com/chao-eng/NetTamer', '_blank')
 }
 </script>
 
@@ -52,6 +56,17 @@ async function minimizeToTray() {
     </nav>
 
     <div class="mt-auto flex flex-col gap-1 border-t pt-2.5">
+      <a
+        href="https://github.com/chao-eng/NetTamer"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="flex h-8 items-center gap-2.5 rounded-md px-2.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        @click.prevent="openGithub"
+      >
+        <Github class="h-3.5 w-3.5 shrink-0" />
+        <span class="font-medium">GitHub 源码</span>
+      </a>
+
       <Button
         variant="ghost"
         size="sm"

@@ -100,8 +100,10 @@ pub fn run() {
             let agg = app_state.aggregator.clone();
             let alert_engine = app_state.alert.clone();
             let refresh = app_state.refresh_interval.clone();
+            let store_for_tray = app_state.store.clone();
             let emit_handle = handle.clone();
             tauri::async_runtime::spawn(async move {
+                use crate::store::ConfigStore;
                 loop {
                     let ms = refresh.load(Ordering::Relaxed).max(100);
                     tokio::time::sleep(Duration::from_millis(ms)).await;
@@ -114,6 +116,15 @@ pub fn run() {
                     // AlertEvents which the forwarding thread emits as
                     // `alert:triggered`).
                     alert_engine.evaluate(&stats);
+
+                    let taskbar_speed_enabled = store_for_tray
+                        .config_get("taskbar_speed")
+                        .ok()
+                        .flatten()
+                        .map(|v| v == "true")
+                        .unwrap_or(false);
+
+                    tray::update_speed(&emit_handle, total_up, total_down, taskbar_speed_enabled);
 
                     let _ = emit_handle.emit("speed:update", stats);
                     let _ = emit_handle.emit(
@@ -167,6 +178,7 @@ pub fn run() {
             monitor_cmds::start_monitoring,
             monitor_cmds::stop_monitoring,
             monitor_cmds::get_process_list,
+            monitor_cmds::get_system_stats,
             monitor_cmds::set_refresh_interval,
             alert_cmds::create_alert_rule,
             alert_cmds::update_alert_rule,
@@ -180,6 +192,7 @@ pub fn run() {
             config_cmds::set_config,
             config_cmds::get_all_config,
             window_cmds::minimize_to_tray,
+            window_cmds::show_main_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running NetTamer");

@@ -131,6 +131,7 @@ export const CONFIG_KEYS = {
   autoStart: 'auto_start',
   minimizeToTray: 'minimize_to_tray',
   alertSound: 'alert_sound',
+  taskbarSpeed: 'taskbar_speed',
 } as const
 
 export type ConfigKey = (typeof CONFIG_KEYS)[keyof typeof CONFIG_KEYS]
@@ -142,6 +143,7 @@ export const DEFAULT_CONFIG: Record<string, string> = {
   [CONFIG_KEYS.autoStart]: 'false',
   [CONFIG_KEYS.minimizeToTray]: 'true',
   [CONFIG_KEYS.alertSound]: 'true',
+  [CONFIG_KEYS.taskbarSpeed]: 'false',
 }
 
 /**

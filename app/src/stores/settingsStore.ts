@@ -72,6 +72,11 @@ export const useSettingsStore = defineStore('settings', () => {
     await set(CONFIG_KEYS.minimizeToTray, String(!cur))
   }
 
+  async function toggleTaskbarSpeed() {
+    const cur = config.value[CONFIG_KEYS.taskbarSpeed] === 'true'
+    await set(CONFIG_KEYS.taskbarSpeed, String(!cur))
+  }
+
   const isImmersiveWindow = ref(false)
 
   function toggleImmersiveWindow(val?: boolean) {
@@ -90,6 +95,7 @@ export const useSettingsStore = defineStore('settings', () => {
     toggleTheme,
     toggleAutoStart,
     toggleMinimizeToTray,
+    toggleTaskbarSpeed,
     isImmersiveWindow,
     toggleImmersiveWindow,
   }

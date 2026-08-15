@@ -64,6 +64,18 @@ pub fn get_process_list(state: State<'_, AppState>) -> Result<Vec<ProcessStats>,
     Ok(state.aggregator.snapshot())
 }
 
+/// Snapshot of system-wide total upload and download speeds.
+#[tauri::command]
+pub fn get_system_stats(state: State<'_, AppState>) -> Result<crate::models::SystemStats, String> {
+    let procs = state.aggregator.snapshot();
+    let total_up: f64 = procs.iter().map(|s| s.upload_rate).sum();
+    let total_down: f64 = procs.iter().map(|s| s.download_rate).sum();
+    Ok(crate::models::SystemStats {
+        total_upload_rate: total_up,
+        total_download_rate: total_down,
+    })
+}
+
 /// Update the emit cadence (also persisted to config).
 #[tauri::command]
 pub fn set_refresh_interval(state: State<'_, AppState>, ms: u64) -> Result<(), String> {

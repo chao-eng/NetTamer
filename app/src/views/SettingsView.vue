@@ -70,6 +70,17 @@ async function onRefreshChange() {
             @update:model-value="settingsStore.toggleMinimizeToTray()"
           />
         </div>
+
+        <div class="flex items-center justify-between">
+          <div>
+            <Label>任务栏网速显示</Label>
+            <p class="text-xs text-muted-foreground">在系统任务栏托盘实时显示上传与下载速度（↑ / ↓）</p>
+          </div>
+          <Switch
+            :model-value="settingsStore.config[CONFIG_KEYS.taskbarSpeed] === 'true'"
+            @update:model-value="settingsStore.toggleTaskbarSpeed()"
+          />
+        </div>
       </CardContent>
     </Card>
 

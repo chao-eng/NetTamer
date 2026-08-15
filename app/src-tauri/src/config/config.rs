@@ -41,6 +41,7 @@ impl Config {
             ("auto_start", "false"),
             ("minimize_to_tray", "true"),
             ("alert_sound", "true"),
+            ("taskbar_speed", "false"),
         ]
     }
 }

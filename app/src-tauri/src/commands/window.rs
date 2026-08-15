@@ -10,3 +10,14 @@ pub fn minimize_to_tray(app: AppHandle) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// Show and focus the main window.
+#[tauri::command]
+pub fn show_main_window(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.show();
+        let _ = window.unminimize();
+        let _ = window.set_focus();
+    }
+    Ok(())
+}
