@@ -84,7 +84,7 @@ pub fn setup(app: &AppHandle) -> Result<(), crate::models::Error> {
     .inner_size(WIDGET_WIDTH as f64, 40.0)
     .decorations(false)
     .transparent(true)
-    .always_on_top(true)
+    .always_on_top(false)
     .skip_taskbar(true)
     .resizable(false)
     .shadow(false)
@@ -185,13 +185,15 @@ pub fn get_floating_default_position(app: &AppHandle) -> Option<(i32, i32)> {
     }
 }
 
-/// Pin taskbar widget permanently on top of taskbar with click-through and no-activation styles.
+/// Pin taskbar widget to the exact same Z-order layer as the Windows taskbar (clicks pass through).
 #[cfg(target_os = "windows")]
 pub fn pin_taskbar_widget_window(widget: &tauri::WebviewWindow, x: i32, y: i32, w: u32, h: u32) {
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongW, SetWindowLongW, SetWindowPos, GWL_EXSTYLE, HWND_TOPMOST, SWP_NOACTIVATE,
+        FindWindowW, GetWindowLongW, SetWindowLongW, SetWindowPos, GWL_EXSTYLE, SWP_NOACTIVATE,
         SWP_SHOWWINDOW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT,
     };
+    use std::ffi::OsStr;
+    use std::os::windows::ffi::OsStrExt;
 
     if let Ok(hwnd) = widget.hwnd() {
         let hwnd_raw = hwnd.0 as windows_sys::Win32::Foundation::HWND;
@@ -202,9 +204,18 @@ pub fn pin_taskbar_widget_window(widget: &tauri::WebviewWindow, x: i32, y: i32, 
                 SetWindowLongW(hwnd_raw, GWL_EXSTYLE, target_style);
             }
 
+            let tray_class: Vec<u16> = OsStr::new("Shell_TrayWnd")
+                .encode_wide()
+                .chain(std::iter::once(0))
+                .collect();
+            let hwnd_tray = FindWindowW(tray_class.as_ptr(), std::ptr::null());
+
+            // Place in the exact same Z-order layer immediately above the taskbar (not HWND_TOPMOST)
+            let insert_after = if hwnd_tray != 0 { hwnd_tray } else { 0 };
+
             SetWindowPos(
                 hwnd_raw,
-                HWND_TOPMOST,
+                insert_after,
                 x,
                 y,
                 w as i32,
