@@ -27,9 +27,9 @@ async function minimizeToTray() {
 </script>
 
 <template>
-  <aside class="flex w-56 shrink-0 flex-col border-r bg-card p-3">
-    <div class="mb-6 flex items-center gap-2 px-2 text-xl font-bold tracking-tight">
-      <span class="text-2xl">🐾</span>
+  <aside class="flex w-44 shrink-0 flex-col border-r bg-card p-2.5">
+    <div class="mb-4 flex items-center gap-1.5 px-1.5 text-lg font-bold tracking-tight">
+      <span class="text-xl">🐾</span>
       <span>网络驯兽师</span>
     </div>
     <nav class="flex flex-col gap-1">
@@ -39,39 +39,39 @@ async function minimizeToTray() {
         :to="item.to"
         :class="
           cn(
-            'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+            'flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors',
             route.path === item.to
               ? 'bg-primary text-primary-foreground'
               : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
           )
         "
       >
-        <component :is="item.icon" class="h-4 w-4" />
+        <component :is="item.icon" class="h-4 w-4 shrink-0" />
         <span>{{ item.label }}</span>
       </RouterLink>
     </nav>
 
-    <div class="mt-auto flex flex-col gap-1 border-t pt-3">
+    <div class="mt-auto flex flex-col gap-1 border-t pt-2.5">
       <Button
         variant="ghost"
         size="sm"
-        class="justify-start gap-3 px-3 text-muted-foreground hover:text-foreground"
+        class="h-8 justify-start gap-2.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
         :aria-label="'切换主题'"
         @click="settings.toggleTheme()"
       >
-        <component :is="isDark ? Sun : Moon" class="h-4 w-4" />
-        <span class="text-sm font-medium">{{ isDark ? '切换浅色' : '切换深色' }}</span>
+        <component :is="isDark ? Sun : Moon" class="h-3.5 w-3.5 shrink-0" />
+        <span class="font-medium">{{ isDark ? '切换浅色' : '切换深色' }}</span>
       </Button>
 
       <Button
         variant="ghost"
         size="sm"
-        class="justify-start gap-3 px-3 text-muted-foreground hover:text-foreground"
+        class="h-8 justify-start gap-2.5 px-2.5 text-xs text-muted-foreground hover:text-foreground"
         aria-label="最小化到托盘"
         @click="minimizeToTray()"
       >
-        <Minimize2 class="h-4 w-4" />
-        <span class="text-sm font-medium">最小化到托盘</span>
+        <Minimize2 class="h-3.5 w-3.5 shrink-0" />
+        <span class="font-medium">最小化到托盘</span>
       </Button>
     </div>
   </aside>

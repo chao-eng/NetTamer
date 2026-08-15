@@ -371,10 +371,10 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- 3. [Static 4-Track Elevated Highway Infrastructure] -->
-      <div class="tracks-container relative z-10 flex h-full flex-col justify-end pb-12">
+      <div class="tracks-container relative z-10 flex h-full flex-col justify-end pb-6">
         
         <!-- Track 1: Upload Lane 1 (Moves Right-to-Left) -->
-        <div class="track-stage-lane relative flex flex-col justify-end" style="height: 105px;">
+        <div class="track-stage-lane relative flex flex-col justify-end" style="height: 86px;">
           <!-- Static Roadside Props (Street Lamps, Guardrail Posts) -->
           <div class="static-lane-props pointer-events-none absolute inset-x-0 bottom-2 h-14">
             <div class="static-lamp lamp-pos-1"><div class="lamp-glow"></div></div>
@@ -390,7 +390,7 @@ onBeforeUnmount(() => {
               v-if="laneVehicles.up1.isDriving"
               :key="`up1-${laneVehicles.up1.runKey}`"
               :class="['moving-car-runner absolute', carReady.up1 ? 'drive-pass-left' : '']"
-              :style="{ bottom: '-16px', left: carReady.up1 ? undefined : 'calc(100% + 60px)', '--drive-dur': `${laneVehicles.up1.durationSec}s` }"
+              :style="{ bottom: '-21px', left: carReady.up1 ? undefined : 'calc(100% + 60px)', '--drive-dur': `${laneVehicles.up1.durationSec}s` }"
               @animationend="handlePassCompleted('up1')"
             >
               <RiveCar
@@ -413,7 +413,7 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- Track 2: Upload Lane 2 (Moves Right-to-Left) -->
-        <div class="track-stage-lane relative flex flex-col justify-end" style="height: 105px;">
+        <div class="track-stage-lane relative flex flex-col justify-end" style="height: 86px;">
           <div class="static-lane-props pointer-events-none absolute inset-x-0 bottom-2 h-14">
             <div class="static-lamp lamp-pos-alt-1"><div class="lamp-glow"></div></div>
             <div class="static-lamp lamp-pos-alt-2"><div class="lamp-glow"></div></div>
@@ -426,7 +426,7 @@ onBeforeUnmount(() => {
               v-if="laneVehicles.up2.isDriving"
               :key="`up2-${laneVehicles.up2.runKey}`"
               :class="['moving-car-runner absolute', carReady.up2 ? 'drive-pass-left' : '']"
-              :style="{ bottom: '-16px', left: carReady.up2 ? undefined : 'calc(100% + 60px)', '--drive-dur': `${laneVehicles.up2.durationSec}s` }"
+              :style="{ bottom: '-21px', left: carReady.up2 ? undefined : 'calc(100% + 60px)', '--drive-dur': `${laneVehicles.up2.durationSec}s` }"
               @animationend="handlePassCompleted('up2')"
             >
               <RiveCar
@@ -449,7 +449,7 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- Central Green Isolation Belt & Crash Barrier -->
-        <div class="central-barrier-strip relative z-15 flex h-7 w-full items-center justify-between bg-gradient-to-r from-emerald-100/90 via-teal-100/90 to-emerald-100/90 px-6 border-y-2 border-emerald-600/40 shadow-[0_0_12px_rgba(16,185,129,0.18)] dark:from-emerald-950 dark:via-teal-950 dark:to-emerald-950 dark:border-emerald-500/50 dark:shadow-[0_0_15px_rgba(16,185,129,0.35)]">
+        <div class="central-barrier-strip relative z-15 flex h-6 w-full items-center justify-between bg-gradient-to-r from-emerald-100/90 via-teal-100/90 to-emerald-100/90 px-6 border-y-2 border-emerald-600/40 shadow-[0_0_12px_rgba(16,185,129,0.18)] dark:from-emerald-950 dark:via-teal-950 dark:to-emerald-950 dark:border-emerald-500/50 dark:shadow-[0_0_15px_rgba(16,185,129,0.35)]">
           <div class="flex items-center gap-2 text-xs font-bold tracking-wide text-emerald-700 dark:text-emerald-400">
             <span class="h-2 w-2 rounded-full bg-emerald-500 animate-pulse dark:bg-emerald-400"></span>
             <span>上行流量 ←</span>
@@ -462,7 +462,7 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- Track 3: Download Lane 1 (Moves Left-to-Right) -->
-        <div class="track-stage-lane relative flex flex-col justify-end" style="height: 105px;">
+        <div class="track-stage-lane relative flex flex-col justify-end" style="height: 86px;">
           <div class="static-lane-props pointer-events-none absolute inset-x-0 bottom-2 h-14">
             <div class="static-lamp lamp-pos-1"><div class="lamp-glow"></div></div>
             <div class="static-lamp lamp-pos-2"><div class="lamp-glow"></div></div>
@@ -477,7 +477,7 @@ onBeforeUnmount(() => {
               v-if="laneVehicles.down1.isDriving"
               :key="`down1-${laneVehicles.down1.runKey}`"
               :class="['moving-car-runner absolute', carReady.down1 ? 'drive-pass-right' : '']"
-              :style="{ bottom: '-16px', left: carReady.down1 ? undefined : '-190px', '--drive-dur': `${laneVehicles.down1.durationSec}s` }"
+              :style="{ bottom: '-21px', left: carReady.down1 ? undefined : '-190px', '--drive-dur': `${laneVehicles.down1.durationSec}s` }"
               @animationend="handlePassCompleted('down1')"
             >
               <RiveCar
@@ -500,7 +500,7 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- Track 4: Download Lane 2 (Moves Left-to-Right) -->
-        <div class="track-stage-lane relative flex flex-col justify-end" style="height: 105px;">
+        <div class="track-stage-lane relative flex flex-col justify-end" style="height: 86px;">
           <div class="static-lane-props pointer-events-none absolute inset-x-0 bottom-2 h-14">
             <div class="static-lamp lamp-pos-alt-1"><div class="lamp-glow"></div></div>
             <div class="static-lamp lamp-pos-alt-2"><div class="lamp-glow"></div></div>
@@ -513,7 +513,7 @@ onBeforeUnmount(() => {
               v-if="laneVehicles.down2.isDriving"
               :key="`down2-${laneVehicles.down2.runKey}`"
               :class="['moving-car-runner absolute', carReady.down2 ? 'drive-pass-right' : '']"
-              :style="{ bottom: '-16px', left: carReady.down2 ? undefined : '-190px', '--drive-dur': `${laneVehicles.down2.durationSec}s` }"
+              :style="{ bottom: '-21px', left: carReady.down2 ? undefined : '-190px', '--drive-dur': `${laneVehicles.down2.durationSec}s` }"
               @animationend="handlePassCompleted('down2')"
             >
               <RiveCar
