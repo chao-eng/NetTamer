@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, onActivated, onDeactivated, watch } from 'vue'
 import type { UnlistenFn } from '@/types'
 import { useProcessStore } from '@/stores/processStore'
 import { useSettingsStore } from '@/stores/settingsStore'
@@ -273,6 +273,14 @@ onMounted(async () => {
   }
   syncAllLanes()
   syncTimer = window.setInterval(syncAllLanes, 1000)
+})
+
+onActivated(() => {
+  syncAllLanes()
+})
+
+onDeactivated(() => {
+  settings.toggleImmersiveWindow(false)
 })
 
 onBeforeUnmount(() => {

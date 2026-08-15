@@ -26,7 +26,7 @@ const router = createRouter({
     {
       path: '/visualizer',
       name: 'visualizer',
-      component: () => import('@/views/TrafficVisualizerView.vue'),
+      component: { template: '<div></div>' },
     },
     {
       path: '/settings',

@@ -30,7 +30,7 @@ async function minimizeToTray() {
   <aside class="flex w-56 shrink-0 flex-col border-r bg-card p-3">
     <div class="mb-6 flex items-center gap-2 px-2 text-xl font-bold tracking-tight">
       <span class="text-2xl">🐾</span>
-      <span>NetTamer</span>
+      <span>网络驯兽师</span>
     </div>
     <nav class="flex flex-col gap-1">
       <RouterLink
