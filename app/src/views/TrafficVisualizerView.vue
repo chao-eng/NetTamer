@@ -388,7 +388,7 @@ onBeforeUnmount(() => {
               v-if="laneVehicles.up1.isDriving"
               :key="`up1-${laneVehicles.up1.runKey}`"
               class="moving-car-runner drive-pass-left absolute"
-              :style="{ bottom: '-14px', '--drive-dur': `${laneVehicles.up1.durationSec}s` }"
+              :style="{ bottom: '-16px', '--drive-dur': `${laneVehicles.up1.durationSec}s` }"
               @animationend="handlePassCompleted('up1')"
             >
               <RiveCar
@@ -410,7 +410,7 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- Track 2: Upload Lane 2 (⬅️ Moves Right-to-Left) -->
-        <div class="track-stage-lane relative flex flex-col justify-end" style="height: 100px;">
+        <div class="track-stage-lane relative flex flex-col justify-end" style="height: 105px;">
           <div class="static-lane-props pointer-events-none absolute inset-x-0 bottom-2 h-14">
             <div class="static-lamp lamp-pos-alt-1"><div class="lamp-glow"></div></div>
             <div class="static-lamp lamp-pos-alt-2"><div class="lamp-glow"></div></div>
@@ -423,7 +423,7 @@ onBeforeUnmount(() => {
               v-if="laneVehicles.up2.isDriving"
               :key="`up2-${laneVehicles.up2.runKey}`"
               class="moving-car-runner drive-pass-left absolute"
-              :style="{ bottom: '-12px', '--drive-dur': `${laneVehicles.up2.durationSec}s` }"
+              :style="{ bottom: '-16px', '--drive-dur': `${laneVehicles.up2.durationSec}s` }"
               @animationend="handlePassCompleted('up2')"
             >
               <RiveCar
@@ -433,8 +433,8 @@ onBeforeUnmount(() => {
                 :label="laneVehicles.up2.name"
                 :sub-label="laneVehicles.up2.rateFormatted"
                 :icon="laneVehicles.up2.icon"
-                :width="155"
-                :height="75"
+                :width="160"
+                :height="80"
               />
             </div>
           </div>
@@ -482,7 +482,7 @@ onBeforeUnmount(() => {
               v-if="laneVehicles.down1.isDriving"
               :key="`down1-${laneVehicles.down1.runKey}`"
               class="moving-car-runner drive-pass-right absolute"
-              :style="{ bottom: '-14px', '--drive-dur': `${laneVehicles.down1.durationSec}s` }"
+              :style="{ bottom: '-16px', '--drive-dur': `${laneVehicles.down1.durationSec}s` }"
               @animationend="handlePassCompleted('down1')"
             >
               <RiveCar
@@ -492,7 +492,7 @@ onBeforeUnmount(() => {
                 :label="laneVehicles.down1.name"
                 :sub-label="laneVehicles.down1.rateFormatted"
                 :icon="laneVehicles.down1.icon"
-                :width="165"
+                :width="160"
                 :height="80"
               />
             </div>
@@ -504,7 +504,7 @@ onBeforeUnmount(() => {
         </div>
 
         <!-- Track 4: Download Lane 2 (➡️ Moves Left-to-Right) -->
-        <div class="track-stage-lane relative flex flex-col justify-end" style="height: 100px;">
+        <div class="track-stage-lane relative flex flex-col justify-end" style="height: 105px;">
           <div class="static-lane-props pointer-events-none absolute inset-x-0 bottom-2 h-14">
             <div class="static-lamp lamp-pos-alt-1"><div class="lamp-glow"></div></div>
             <div class="static-lamp lamp-pos-alt-2"><div class="lamp-glow"></div></div>
@@ -517,7 +517,7 @@ onBeforeUnmount(() => {
               v-if="laneVehicles.down2.isDriving"
               :key="`down2-${laneVehicles.down2.runKey}`"
               class="moving-car-runner drive-pass-right absolute"
-              :style="{ bottom: '-12px', '--drive-dur': `${laneVehicles.down2.durationSec}s` }"
+              :style="{ bottom: '-16px', '--drive-dur': `${laneVehicles.down2.durationSec}s` }"
               @animationend="handlePassCompleted('down2')"
             >
               <RiveCar
@@ -527,8 +527,8 @@ onBeforeUnmount(() => {
                 :label="laneVehicles.down2.name"
                 :sub-label="laneVehicles.down2.rateFormatted"
                 :icon="laneVehicles.down2.icon"
-                :width="155"
-                :height="75"
+                :width="160"
+                :height="80"
               />
             </div>
           </div>
