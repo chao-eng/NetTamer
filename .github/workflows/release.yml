@@ -1,0 +1,102 @@
+name: Release NetTamer
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: '版本标签 (例如: v1.0.0)'
+        required: true
+        default: 'v1.0.0'
+      release_title:
+        description: '发布标题'
+        required: true
+        default: 'NetTamer v1.0.0 - 网络驯兽师 正式版'
+      is_draft:
+        description: '是否保存为草稿 (Draft)'
+        type: boolean
+        required: false
+        default: false
+      is_prerelease:
+        description: '是否标记为预发布 (Pre-release)'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build & Release Windows App
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: 'app/package-lock.json'
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'app/src-tauri -> app/src-tauri/target'
+
+      - name: Install Frontend Dependencies
+        working-directory: ./app
+        run: npm ci
+
+      - name: Build Tauri App & Create GitHub Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: './app'
+          tagName: ${{ github.event.inputs.tag_name }}
+          releaseName: ${{ github.event.inputs.release_title }}
+          releaseBody: |
+            # 🐾 NetTamer (网络驯兽师) ${{ github.event.inputs.tag_name }}
+
+            > **Tame your runaway network traffic.**
+            > 一款专为解决“后台程序偷偷满速上传、吃满带宽、导致游戏跳 ping 和网页卡顿”而生的现代轻量级桌面端网络监控与流量整形工具。
+
+            ---
+
+            ### 💡 核心功能亮点
+
+            - ⚡ **零损耗内核监控**：基于 Windows 原生 ETW (`Microsoft-Windows-Kernel-Network`) 会话，极低 CPU 占用实时捕获进程级 TCP/UDP 上传与下载速率。
+            - 🎯 **精准双向限速**：集成 WinDivert (WFP 内核驱动) 与令牌桶算法 (Token Bucket)，支持按进程名以 KB/s 粒度独立限制上传、下载或双向带宽。
+            - 🚗 **流量高速公路可视化 (Traffic Highway)**：独创拟物化 3D 多车道悬浮车流，实时映射进程吞吐量，中央绿化带展示全局上行/下行速率。
+            - 📌 **桌面置顶网速悬浮窗**：
+              - 默认停靠屏幕右下角黄金区域，置顶常驻桌面。
+              - 原生丝滑自由拖拽，双击唤出仪表盘主界面。
+              - 右键操作系统级原生菜单：支持 `100% / 80% / 60% / 40%` 透明度调节与**鼠标穿透模式**。
+              - 自动自适应深色/浅色主题，设置页面与系统托盘双重一键解除穿透。
+            - 💻 **Windows 任务栏实时网速**：无缝悬浮于任务栏托盘区域，背景全透明、单行垂直精准居中，鼠标点击完全穿透。
+            - 🔍 **智能进程与端口映射**：自动快照解析进程路径与图标，维护实时动态 TCP/UDP 连接表。
+            - 🚨 **智能超额预警与历史记录**：支持通配符规则（如 `chrome*`、`*update*`）与 Windows 原生系统气泡告警。
+            - 💾 **轻量 SQLite 本地存储**：内置 WAL 模式 SQLite，持久化保存限速策略、预警规则与悬浮窗配置。
+
+            ---
+
+            ### 📦 安装包说明
+
+            | 文件格式 | 说明 |
+            | :--- | :--- |
+            | `NetTamer_*_x64-setup.exe` | **NSIS 安装引导包 (推荐)**，支持桌面快捷方式与开机自启 |
+            | `NetTamer_*_x64_en-US.msi` | **Windows Installer 微软标准安装包** |
+
+            ---
+
+            > ⚠️ **运行提示**：由于 ETW 实时内核网络跟踪与 WinDivert 驱动需控制系统网络协议栈，程序需**以管理员身份运行**。
+          releaseDraft: ${{ github.event.inputs.is_draft == 'true' }}
+          prerelease: ${{ github.event.inputs.is_prerelease == 'true' }}
