@@ -1,8 +1,9 @@
 //! Process icon extraction and Base64 caching for Windows.
 //!
-//! Uses Win32 `SHGetFileInfoW` to extract the embedded icon from an executable,
-//! rasterizes it into a 32-bit RGBA BMP in-memory stream, and encodes it as a Base64 data URI.
-//! Results are cached in a thread-safe LRU/HashMap to avoid any duplicate disk or GDI operations.
+//! Uses Win32 `SHGetFileInfoW` to extract High-DPI icons from executables.
+//! Combines color and mask bitmaps to construct genuine 32-bit ARGB transparency,
+//! eliminating black borders on legacy or 1-bit masked icons.
+//! Results are encoded with BITMAPV5HEADER and cached in memory.
 
 use std::collections::HashMap;
 use std::ffi::OsStr;
@@ -100,6 +101,7 @@ const SHGFI_ICON: u32 = 0x000000100;
 const SHGFI_LARGEICON: u32 = 0x000000000;
 const SHGFI_SMALLICON: u32 = 0x000000001;
 const DIB_RGB_COLORS: u32 = 0;
+const BI_BITFIELDS: u32 = 3;
 
 /// Extract the icon of an executable as a Base64 Data URI string.
 /// Cached by normalized path.
@@ -119,7 +121,7 @@ pub fn get_process_icon_b64(exe_path: &str) -> String {
 
     let b64 = extract_icon_as_bmp_base64(exe_path).unwrap_or_default();
 
-    // Cache the result (even if empty to prevent repeated disk queries on missing files)
+    // Cache the result
     let mut cache = ICON_CACHE.lock().unwrap();
     cache.insert(norm_path, b64.clone());
     b64
@@ -168,9 +170,15 @@ fn extract_icon_as_bmp_base64(exe_path: &str) -> Option<String> {
     }
 
     let mut bm: BITMAP = unsafe { std::mem::zeroed() };
+    let color_hbm = if icon_info.hbm_color != 0 {
+        icon_info.hbm_color
+    } else {
+        icon_info.hbm_mask
+    };
+
     if unsafe {
         GetObjectW(
-            icon_info.hbm_color,
+            color_hbm,
             std::mem::size_of::<BITMAP>() as i32,
             &mut bm as *mut _ as *mut std::ffi::c_void,
         )
@@ -185,7 +193,12 @@ fn extract_icon_as_bmp_base64(exe_path: &str) -> Option<String> {
     }
 
     let width = bm.bm_width;
-    let height = bm.bm_height;
+    let mut height = bm.bm_height;
+    // If only hbm_mask is provided, height includes both AND mask and XOR mask
+    if icon_info.hbm_color == 0 {
+        height /= 2;
+    }
+
     if width <= 0 || height <= 0 || width > 256 || height > 256 {
         unsafe {
             if icon_info.hbm_color != 0 { DeleteObject(icon_info.hbm_color); }
@@ -198,26 +211,49 @@ fn extract_icon_as_bmp_base64(exe_path: &str) -> Option<String> {
     let hdc = unsafe { CreateCompatibleDC(0) };
     let pixel_count = (width * height) as usize;
     let mut pixels = vec![0u8; pixel_count * 4];
+    let mut mask_pixels = vec![0u8; pixel_count * 4];
 
     let mut bmi: BITMAPINFO = unsafe { std::mem::zeroed() };
     bmi.bmi_header.bi_size = std::mem::size_of::<BITMAPINFOHEADER>() as u32;
     bmi.bmi_header.bi_width = width;
-    bmi.bmi_header.bi_height = height; // bottom-up for standard BMP
+    bmi.bmi_header.bi_height = height; // bottom-up
     bmi.bmi_header.bi_planes = 1;
     bmi.bmi_header.bi_bit_count = 32;
     bmi.bmi_header.bi_compression = 0; // BI_RGB
 
-    let lines = unsafe {
-        GetDIBits(
-            hdc,
-            icon_info.hbm_color,
-            0,
-            height as u32,
-            pixels.as_mut_ptr() as *mut std::ffi::c_void,
-            &mut bmi,
-            DIB_RGB_COLORS,
-        )
-    };
+    let mut lines = 0;
+    if icon_info.hbm_color != 0 {
+        lines = unsafe {
+            GetDIBits(
+                hdc,
+                icon_info.hbm_color,
+                0,
+                height as u32,
+                pixels.as_mut_ptr() as *mut std::ffi::c_void,
+                &mut bmi,
+                DIB_RGB_COLORS,
+            )
+        };
+    }
+
+    let mut has_mask = false;
+    if icon_info.hbm_mask != 0 {
+        let mut mask_bmi = bmi;
+        let mask_lines = unsafe {
+            GetDIBits(
+                hdc,
+                icon_info.hbm_mask,
+                0,
+                height as u32,
+                mask_pixels.as_mut_ptr() as *mut std::ffi::c_void,
+                &mut mask_bmi,
+                DIB_RGB_COLORS,
+            )
+        };
+        if mask_lines > 0 {
+            has_mask = true;
+        }
+    }
 
     unsafe {
         if hdc != 0 { DeleteDC(hdc); }
@@ -226,46 +262,88 @@ fn extract_icon_as_bmp_base64(exe_path: &str) -> Option<String> {
         DestroyIcon(h_icon);
     }
 
-    if lines == 0 {
+    if lines == 0 && !has_mask {
         return None;
     }
 
-    // Check if alpha channel is all 0 (common in legacy 32-bit icons where alpha is unset)
-    let has_alpha = pixels.chunks(4).any(|p| p[3] > 0);
-    if !has_alpha {
-        for chunk in pixels.chunks_mut(4) {
-            chunk[3] = 255;
+    // Determine if color bitmap has real Alpha channel values (> 0 and < 255)
+    let has_real_alpha = pixels.chunks(4).any(|p| p[3] > 0 && p[3] < 255);
+
+    if has_real_alpha {
+        // Modern 32-bit icon with alpha channel
+        if has_mask {
+            for i in 0..pixel_count {
+                // If mask bit is 1 (white), pixel is transparent
+                let mask_val = mask_pixels[i * 4];
+                if mask_val != 0 {
+                    pixels[i * 4 + 3] = 0;
+                }
+            }
+        }
+    } else {
+        // Legacy icon without 32-bit alpha channel: reconstruct alpha from mask
+        for i in 0..pixel_count {
+            let mask_val = if has_mask { mask_pixels[i * 4] } else { 0 };
+            if mask_val != 0 {
+                // Transparent
+                pixels[i * 4] = 0;
+                pixels[i * 4 + 1] = 0;
+                pixels[i * 4 + 2] = 0;
+                pixels[i * 4 + 3] = 0;
+            } else {
+                // Opaque
+                pixels[i * 4 + 3] = 255;
+            }
         }
     }
 
-    // Construct 32-bit BMP file
+    // Construct 32-bit BMP with BITMAPV5HEADER for 100% genuine alpha transparency
     let file_header_size = 14;
-    let info_header_size = 40;
+    let v5_header_size = 124;
     let image_size = pixels.len();
-    let total_file_size = file_header_size + info_header_size + image_size;
+    let total_file_size = file_header_size + v5_header_size + image_size;
+    let off_bits = file_header_size + v5_header_size;
 
     let mut bmp = Vec::with_capacity(total_file_size);
-    // BITMAPFILEHEADER
+
+    // 1. BITMAPFILEHEADER (14 bytes)
     bmp.extend_from_slice(b"BM");
     bmp.extend_from_slice(&(total_file_size as u32).to_le_bytes());
     bmp.extend_from_slice(&0u16.to_le_bytes()); // reserved1
     bmp.extend_from_slice(&0u16.to_le_bytes()); // reserved2
-    bmp.extend_from_slice(&(54u32).to_le_bytes()); // off_bits
+    bmp.extend_from_slice(&(off_bits as u32).to_le_bytes());
 
-    // BITMAPINFOHEADER
-    bmp.extend_from_slice(&(info_header_size as u32).to_le_bytes());
-    bmp.extend_from_slice(&width.to_le_bytes());
-    bmp.extend_from_slice(&height.to_le_bytes());
-    bmp.extend_from_slice(&1u16.to_le_bytes()); // planes
-    bmp.extend_from_slice(&32u16.to_le_bytes()); // bit_count
-    bmp.extend_from_slice(&0u32.to_le_bytes()); // compression (BI_RGB)
-    bmp.extend_from_slice(&(image_size as u32).to_le_bytes());
-    bmp.extend_from_slice(&0i32.to_le_bytes()); // x_pels
-    bmp.extend_from_slice(&0i32.to_le_bytes()); // y_pels
-    bmp.extend_from_slice(&0u32.to_le_bytes()); // clr_used
-    bmp.extend_from_slice(&0u32.to_le_bytes()); // clr_important
+    // 2. BITMAPV5HEADER (124 bytes)
+    bmp.extend_from_slice(&(v5_header_size as u32).to_le_bytes()); // bV5Size (124)
+    bmp.extend_from_slice(&width.to_le_bytes()); // bV5Width
+    bmp.extend_from_slice(&height.to_le_bytes()); // bV5Height (bottom-up)
+    bmp.extend_from_slice(&1u16.to_le_bytes()); // bV5Planes
+    bmp.extend_from_slice(&32u16.to_le_bytes()); // bV5BitCount
+    bmp.extend_from_slice(&BI_BITFIELDS.to_le_bytes()); // bV5Compression (BI_BITFIELDS = 3)
+    bmp.extend_from_slice(&(image_size as u32).to_le_bytes()); // bV5SizeImage
+    bmp.extend_from_slice(&0i32.to_le_bytes()); // bV5XPelsPerMeter
+    bmp.extend_from_slice(&0i32.to_le_bytes()); // bV5YPelsPerMeter
+    bmp.extend_from_slice(&0u32.to_le_bytes()); // bV5ClrUsed
+    bmp.extend_from_slice(&0u32.to_le_bytes()); // bV5ClrImportant
 
-    // Pixel data
+    // Color Masks (RGBA / BGRA channel bitmasks)
+    bmp.extend_from_slice(&0x00FF0000u32.to_le_bytes()); // bV5RedMask
+    bmp.extend_from_slice(&0x0000FF00u32.to_le_bytes()); // bV5GreenMask
+    bmp.extend_from_slice(&0x000000FFu32.to_le_bytes()); // bV5BlueMask
+    bmp.extend_from_slice(&0xFF000000u32.to_le_bytes()); // bV5AlphaMask
+
+    // Color Space & Gamma
+    bmp.extend_from_slice(&0x73524742u32.to_le_bytes()); // bV5CSType ('sRGB')
+    bmp.extend_from_slice(&[0u8; 36]); // bV5Endpoints (CIEXYZTRIPLE - 36 bytes zeroed)
+    bmp.extend_from_slice(&0u32.to_le_bytes()); // bV5GammaRed
+    bmp.extend_from_slice(&0u32.to_le_bytes()); // bV5GammaGreen
+    bmp.extend_from_slice(&0u32.to_le_bytes()); // bV5GammaBlue
+    bmp.extend_from_slice(&4u32.to_le_bytes()); // bV5Intent (LCS_GM_IMAGES = 4)
+    bmp.extend_from_slice(&0u32.to_le_bytes()); // bV5ProfileData
+    bmp.extend_from_slice(&0u32.to_le_bytes()); // bV5ProfileSize
+    bmp.extend_from_slice(&0u32.to_le_bytes()); // bV5Reserved
+
+    // 3. Pixel Data (BGRA)
     bmp.extend_from_slice(&pixels);
 
     let b64 = base64_encode(&bmp);
