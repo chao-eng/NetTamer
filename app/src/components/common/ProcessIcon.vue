@@ -7,9 +7,12 @@ const props = withDefaults(
 )
 
 const letter = computed(() => (props.name || '?').charAt(0).toUpperCase())
-const src = computed(() =>
-  props.iconB64 ? `data:image/png;base64,${props.iconB64}` : '',
-)
+const src = computed(() => {
+  if (!props.iconB64) return ''
+  return props.iconB64.startsWith('data:')
+    ? props.iconB64
+    : `data:image/png;base64,${props.iconB64}`
+})
 </script>
 
 <template>

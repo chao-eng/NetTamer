@@ -202,19 +202,25 @@ impl Resolver {
             let n = p.rsplit('\\').next().unwrap_or(&p).to_string();
             (n, p)
         } else if let Some(n) = Self::query_via_snapshot(pid) {
-            (n, String::new())
+            let p = Self::find_installed_exe_path(&n).unwrap_or_default();
+            (n, p)
         } else {
             (format!("pid_{}", pid), String::new())
         };
 
         let category = Self::classify_process(pid, &name, &path);
+        let icon_b64 = if !path.is_empty() {
+            super::icon::get_process_icon_b64(&path)
+        } else {
+            String::new()
+        };
 
         Info {
             pid,
             name,
             path,
             category,
-            icon_b64: String::new(),
+            icon_b64,
             user: String::new(),
         }
     }
